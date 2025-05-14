@@ -1,0 +1,52 @@
+{
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/sdk",
+        "/Users/aldenpexton/miniconda3/lib/python3.12/site-packages"
+    ],
+    "python.linting.enabled": true,
+    "python.analysis.diagnosticMode": "workspace",
+    "python.analysis.typeCheckingMode": "off",
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.importFormat": "absolute",
+    "python.analysis.inlayHints.variableTypes": false,
+    "python.analysis.inlayHints.functionReturnTypes": false,
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportMissingImports": "none",
+        "reportMissingTypeStubs": "none",
+        "reportUnknownMemberType": "none",
+        "reportUnknownArgumentType": "none",
+        "reportUnknownVariableType": "none",
+        "reportAttributeAccessIssue": "none",
+        "reportGeneralTypeIssues": "none",
+        "reportPrivateUsage": "none",
+        "reportOptionalMemberAccess": "none",
+        "reportOptionalSubscript": "none",
+        "reportOptionalIterable": "none",
+        "reportOptionalCall": "none",
+        "reportAssignmentType": "none",
+        "reportReturnType": "none",
+        "reportArgumentType": "none"
+    },
+    "python.analysis.packageIndexDepths": [
+        {
+            "name": "sklearn",
+            "depth": 2
+        },
+        {
+            "name": "matplotlib",
+            "depth": 2
+        },
+        {
+            "name": "pytest",
+            "depth": 2
+        },
+        {
+            "name": "unittest",
+            "depth": 1
+        },
+        {
+            "name": "mock",
+            "depth": 1
+        }
+    ]
+} 

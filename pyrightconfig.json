@@ -1,0 +1,35 @@
+{
+    "include": [
+        "sdk",
+        "backend"
+    ],
+    "exclude": [
+        "**/node_modules",
+        "**/__pycache__",
+        "**/.*",
+        "**/venv/**",
+        "**/.venv/**"
+    ],
+    "reportMissingImports": "none",
+    "reportMissingTypeStubs": "none",
+    "reportUnknownMemberType": "none",
+    "reportUnknownArgumentType": "none",
+    "reportUnknownVariableType": "none",
+    "reportAttributeAccessIssue": "none",
+    "reportGeneralTypeIssues": "none",
+    "reportPrivateUsage": "none",
+    "reportOptionalMemberAccess": "none",
+    "reportOptionalSubscript": "none",
+    "reportOptionalIterable": "none",
+    "reportOptionalCall": "none",
+    "reportAssignmentType": "none",
+    "reportReturnType": "none",
+    "reportArgumentType": "none",
+    "pythonVersion": "3.12",
+    "pythonPlatform": "Darwin",
+    "extraPaths": [
+        "/Users/aldenpexton/miniconda3/lib/python3.12/site-packages",
+        "sdk"
+    ],
+    "typeCheckingMode": "off"
+} 
