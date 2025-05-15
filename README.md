@@ -67,4 +67,4 @@ This project is under active development. Key features:
 
 ## License
 
-[MIT License](LICENSE) 
+[MIT License](LICENSE)
