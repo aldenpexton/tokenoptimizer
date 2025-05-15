@@ -14,7 +14,7 @@ const TokenUsageChart = ({ metric }: TokenUsageChartProps) => {
   const [data, setData] = useState<TimeSeriesData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [interval, setInterval] = useState<'day' | 'week' | 'month'>('day');
+  const [interval] = useState<'day' | 'week' | 'month'>('day');
 
   useEffect(() => {
     const loadData = async () => {
