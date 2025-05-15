@@ -4,7 +4,7 @@ import {
   Legend, Tooltip, Sector
 } from 'recharts';
 import { fetchModelDistribution } from '../../api/analytics';
-import type { ModelDistributionData, ModelData } from '../../api/analytics';
+import type { ModelDistributionData } from '../../api/analytics';
 
 interface ModelDistributionChartProps {
   metric: 'tokens' | 'cost';
@@ -17,7 +17,7 @@ const COLORS = ['#6366F1', '#8B5CF6', '#EC4899', '#F97316', '#EAB308', '#10B981'
 const renderActiveShape = (props: any) => {
   const { 
     cx, cy, innerRadius, outerRadius, startAngle, endAngle,
-    fill, payload, percent, value 
+    fill, payload
   } = props;
 
   return (
@@ -136,7 +136,7 @@ const ModelDistributionChart = ({ metric }: ModelDistributionChartProps) => {
             nameKey="model"
             valueKey="value"
           >
-            {chartData.map((entry, index) => (
+            {chartData.map((_, index) => (
               <Cell 
                 key={`cell-${index}`} 
                 fill={COLORS[index % COLORS.length]} 
