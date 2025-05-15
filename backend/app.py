@@ -7,6 +7,7 @@ from flask import Flask
 from flask_cors import CORS
 from config.config import HOST, PORT, DEBUG
 from routes.log_routes import log_bp
+from routes.analytics_routes import analytics_bp
 
 def create_app():
     """
@@ -20,6 +21,7 @@ def create_app():
     
     # Register blueprints
     app.register_blueprint(log_bp, url_prefix='/api')
+    app.register_blueprint(analytics_bp, url_prefix='/api')
     
     # Health check endpoint
     @app.route('/health', methods=['GET'])
