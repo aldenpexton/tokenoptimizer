@@ -3,7 +3,7 @@ import os
 # Add the project root to the Python path to resolve imports
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS
 from config.config import HOST, PORT, DEBUG
 from routes.log_routes import log_bp
@@ -28,8 +28,25 @@ def create_app():
     def health_check():
         return {'status': 'ok'}, 200
     
+    @app.route('/')
+    def index():
+        return jsonify({
+            "status": "ok",
+            "message": "TokenOptimizer API is running"
+        })
+
+    # Error handlers
+    @app.errorhandler(404)
+    def not_found(e):
+        return jsonify({"error": "Resource not found"}), 404
+
+    @app.errorhandler(500)
+    def server_error(e):
+        return jsonify({"error": "Internal server error"}), 500
+
     return app
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(host=HOST, port=PORT, debug=DEBUG) 
+    port = int(os.environ.get('PORT', 5001))
+    app.run(host='0.0.0.0', port=port, debug=True) 

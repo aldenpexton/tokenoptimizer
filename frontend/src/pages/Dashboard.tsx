@@ -1,19 +1,40 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import OverviewCard from '../components/dashboard/OverviewCard';
 import TokenUsageChart from '../components/dashboard/TokenUsageChart';
 import ModelDistributionChart from '../components/dashboard/ModelDistributionChart';
 import FeatureUsageTable from '../components/dashboard/FeatureUsageTable';
+import FilterBar from '../components/FilterBar';
+import { useFilters } from '../contexts/FilterContext';
 
 const Dashboard = () => {
   const [metric, setMetric] = useState<'tokens' | 'cost'>('tokens');
+  const { filters } = useFilters();
 
   const toggleMetric = () => {
     setMetric(metric === 'tokens' ? 'cost' : 'tokens');
   };
 
+  // Register event listener for filter changes
+  useEffect(() => {
+    const handleFilterChange = () => {
+      // This is a lightweight effect to avoid modifying existing chart code
+      // As per instructions, charts will listen to the custom event directly
+      console.log('Filter changed event detected');
+    };
+
+    window.addEventListener('filter-changed', handleFilterChange);
+
+    return () => {
+      window.removeEventListener('filter-changed', handleFilterChange);
+    };
+  }, []);
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Dashboard</h1>
+      <h1 className="text-2xl font-bold mb-2">Dashboard</h1>
+      
+      {/* Global Filter Bar */}
+      <FilterBar />
       
       {/* Overview Card */}
       <div className="card">
@@ -33,15 +54,8 @@ const Dashboard = () => {
       <div className="card">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Usage Over Time</h2>
-          <div className="flex items-center gap-2">
-            <select className="text-sm border border-gray-200 rounded-md px-2 py-1">
-              <option value="day">Daily</option>
-              <option value="week">Weekly</option>
-              <option value="month">Monthly</option>
-            </select>
-          </div>
         </div>
-        <TokenUsageChart metric={metric} />
+        <TokenUsageChart metric={metric} interval={filters.interval} />
       </div>
       
       {/* Model Distribution Chart */}

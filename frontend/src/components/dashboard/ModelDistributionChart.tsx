@@ -1,72 +1,109 @@
 import { useState, useEffect } from 'react';
 import { 
-  PieChart, Pie, Cell, ResponsiveContainer, 
-  Legend, Tooltip, Sector
+  PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer 
 } from 'recharts';
 import { fetchModelDistribution } from '../../api/analytics';
+import { useFilters } from '../../contexts/FilterContext';
 import type { ModelDistributionData } from '../../api/analytics';
 
 interface ModelDistributionChartProps {
   metric: 'tokens' | 'cost';
 }
 
-// Colors for the pie chart segments - using accessible palette
-const COLORS = ['#6366F1', '#8B5CF6', '#EC4899', '#F97316', '#EAB308', '#10B981', '#0EA5E9', '#6B7280'];
-
-// Custom active shape for the pie chart
-const renderActiveShape = (props: any) => {
-  const { 
-    cx, cy, innerRadius, outerRadius, startAngle, endAngle,
-    fill, payload
-  } = props;
-
-  return (
-    <g>
-      <Sector
-        cx={cx}
-        cy={cy}
-        innerRadius={innerRadius}
-        outerRadius={outerRadius + 6}
-        startAngle={startAngle}
-        endAngle={endAngle}
-        fill={fill}
-      />
-      <text x={cx} y={cy} dy={-20} textAnchor="middle" fill="#333" className="text-sm">
-        {payload.model}
-      </text>
-      <text x={cx} y={cy} dy={8} textAnchor="middle" fill="#333" fontWeight="bold" className="text-lg">
-        {payload.percent}%
-      </text>
-    </g>
-  );
-};
+// Color palette for chart
+const COLORS = ['#6366F1', '#818CF8', '#A5B4FC', '#C7D2FE', '#DDD6FE', '#EDE9FE', '#F5F3FF'];
 
 const ModelDistributionChart = ({ metric }: ModelDistributionChartProps) => {
   const [data, setData] = useState<ModelDistributionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const { filters } = useFilters();
 
+  // Format date for API request
+  const formatDateParam = (date: Date) => date.toISOString().split('T')[0];
+
+  // Function to load data, can be called on filter changes or initial load
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      
+      // Apply all filters including interval
+      const fromParam = formatDateParam(filters.from);
+      const toParam = formatDateParam(filters.to);
+      
+      const modelsData = await fetchModelDistribution(
+        fromParam,
+        toParam,
+        metric,
+        10, // limit
+        filters.model,
+        filters.task,
+        filters.interval
+      );
+      
+      setData(modelsData);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching model distribution:', err);
+      setError('Failed to load model data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial data load and reload on filter changes
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        const modelData = await fetchModelDistribution(undefined, undefined, metric);
-        setData(modelData);
-        setError(null);
-      } catch (err) {
-        console.error('Error fetching model distribution data:', err);
-        setError('Failed to load model data');
-      } finally {
-        setLoading(false);
-      }
+    loadData();
+  }, [metric, filters.from, filters.to, filters.model, filters.task, filters.interval]);
+
+  // Also listen for filter-changed events
+  useEffect(() => {
+    const handleFilterChange = (event: Event) => {
+      console.log('Filter change event detected in ModelDistributionChart');
     };
 
-    loadData();
-  }, [metric]);
+    window.addEventListener('filter-changed', handleFilterChange);
+    return () => {
+      window.removeEventListener('filter-changed', handleFilterChange);
+    };
+  }, []);
 
-  const onPieEnter = (_: any, index: number) => {
-    setActiveIndex(index);
+  // Custom tooltip formatter
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      return (
+        <div className="bg-white p-2 border border-gray-200 rounded shadow-sm text-xs">
+          <p className="font-semibold">{data.model}</p>
+          <p>{metric === 'tokens' ? 'Tokens:' : 'Cost:'} {formatValue(data.value)}</p>
+          <p>Percent: {data.percent}%</p>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  // Custom legend formatter to truncate long model names
+  const renderLegendText = (value: string) => {
+    if (value.length > 20) {
+      return value.substring(0, 17) + '...';
+    }
+    return value;
+  };
+
+  // Format value based on metric
+  const formatValue = (value: number): string => {
+    if (metric === 'tokens') {
+      return value >= 1000 ? `${(value / 1000).toFixed(1)}K` : value.toString();
+    } else {
+      return `$${value.toFixed(2)}`;
+    }
+  };
+
+  // Format percentage for display
+  const formatPercent = (percent: number): string => {
+    // Assumes percent is already in the range 0-100
+    return `${Math.round(percent)}%`;
   };
 
   if (loading) {
@@ -83,80 +120,79 @@ const ModelDistributionChart = ({ metric }: ModelDistributionChartProps) => {
     );
   }
 
-  // Prepare data for the chart
-  const chartData = [...data.data];
-  
-  // Add "Other" category if it has value
-  if (data.other && data.other.value > 0) {
-    chartData.push({
+  // Prepare chart data, combining smaller values into "Other"
+  const chartData = [
+    ...data.data,
+    ...(data.other && data.other.value > 0 ? [{
       model: 'Other',
       value: data.other.value,
       percent: data.other.percent,
       cost: data.other.cost
-    });
-  }
+    }] : [])
+  ];
 
-  // Check if there's any data to display
-  if (chartData.length === 0) {
+  // If we apply model filter, only show that model
+  const modelFilterApplied = filters.model !== '*';
+  const filteredChartData = modelFilterApplied 
+    ? chartData.filter(item => item.model === filters.model)
+    : chartData;
+
+  if (filteredChartData.length === 0) {
     return (
       <div className="h-60 flex items-center justify-center text-gray-500">
-        No model usage data available
+        No model distribution data available for the current filters
       </div>
     );
   }
 
-  // Format for tooltip
-  const formatValue = (value: number): string => {
-    if (metric === 'tokens') {
-      return value >= 1000000
-        ? `${(value / 1000000).toFixed(1)}M tokens`
-        : value >= 1000
-        ? `${(value / 1000).toFixed(1)}K tokens`
-        : `${value} tokens`;
-    } else {
-      return `$${value.toFixed(2)}`;
-    }
-  };
-
   return (
     <div className="h-60">
-      <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Pie
-            activeIndex={activeIndex}
-            activeShape={renderActiveShape}
-            data={chartData}
-            cx="50%"
-            cy="50%"
-            innerRadius={60}
-            outerRadius={80}
-            dataKey="value"
-            onMouseEnter={onPieEnter}
-            paddingAngle={2}
-            nameKey="model"
-            valueKey="value"
-          >
-            {chartData.map((_, index) => (
-              <Cell 
-                key={`cell-${index}`} 
-                fill={COLORS[index % COLORS.length]} 
-              />
-            ))}
-          </Pie>
-          <Tooltip 
-            formatter={(value: number) => formatValue(value)}
-          />
-          <Legend
-            layout="vertical"
-            align="right"
-            verticalAlign="middle"
-            formatter={(value) => {
-              const item = chartData.find(i => i.model === value);
-              return <span className="text-xs">{value} ({item?.percent}%)</span>;
-            }}
-          />
-        </PieChart>
-      </ResponsiveContainer>
+      {chartData.length === 0 ? (
+        <div className="h-full flex items-center justify-center text-gray-500">
+          No model distribution data available
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={chartData}
+              dataKey="value"
+              nameKey="model"
+              cx="50%"
+              cy="50%"
+              outerRadius={80}
+              fill="#8884d8"
+              label={false}
+              labelLine={false}
+            >
+              {chartData.map((entry, index) => (
+                <Cell 
+                  key={`cell-${index}`} 
+                  fill={COLORS[index % COLORS.length]}
+                />
+              ))}
+            </Pie>
+            <Tooltip content={<CustomTooltip />} />
+            <Legend 
+              formatter={(value, entry) => {
+                // Get the entry data from the chartData
+                const item = chartData.find(d => d.model === value);
+                // Format the model name (truncate if too long)
+                const displayName = value.length > 15 ? `${value.substring(0, 12)}...` : value;
+                return `${displayName} (${item ? formatPercent(item.percent) : '0%'})`;
+              }}
+              layout="vertical" 
+              verticalAlign="middle" 
+              align="right"
+              wrapperStyle={{ 
+                fontSize: '12px',
+                maxWidth: '140px',
+                paddingLeft: '10px'
+              }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      )}
     </div>
   );
 };

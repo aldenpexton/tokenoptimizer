@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { fetchSummary } from '../../api/analytics';
+import { useFilters } from '../../contexts/FilterContext';
 import type { SummaryData } from '../../api/analytics';
 
 interface OverviewCardProps {
@@ -10,12 +11,27 @@ const OverviewCard = ({ metric }: OverviewCardProps) => {
   const [data, setData] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { filters } = useFilters();
+
+  // Format date for API request
+  const formatDateParam = (date: Date) => date.toISOString().split('T')[0];
 
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
-        const summary = await fetchSummary();
+        
+        // Use all filters including interval
+        const fromParam = formatDateParam(filters.from);
+        const toParam = formatDateParam(filters.to);
+        
+        const summary = await fetchSummary(
+          fromParam, 
+          toParam,
+          filters.model,
+          filters.task,
+          filters.interval
+        );
         setData(summary);
         setError(null);
       } catch (err) {
@@ -27,6 +43,18 @@ const OverviewCard = ({ metric }: OverviewCardProps) => {
     };
 
     loadData();
+  }, [filters.from, filters.to, filters.model, filters.task, filters.interval]);
+
+  // Also listen for filter-changed events
+  useEffect(() => {
+    const handleFilterChange = () => {
+      console.log('Filter change event detected in OverviewCard');
+    };
+
+    window.addEventListener('filter-changed', handleFilterChange);
+    return () => {
+      window.removeEventListener('filter-changed', handleFilterChange);
+    };
   }, []);
 
   if (loading) {
@@ -69,9 +97,6 @@ const OverviewCard = ({ metric }: OverviewCardProps) => {
         <p className="text-2xl font-bold">
           {metric === 'tokens' ? formatNumber(data.total_tokens) : formatCost(data.total_cost)}
         </p>
-        <div className="mt-1 text-xs text-gray-500">
-          {data.time_period.days} days
-        </div>
       </div>
 
       {/* Token Breakdown */}
@@ -99,19 +124,27 @@ const OverviewCard = ({ metric }: OverviewCardProps) => {
 
       {/* Top Model */}
       <div className="bg-gray-50 p-4 rounded-md">
-        <h3 className="text-sm font-medium text-gray-500 mb-1">Top Model</h3>
-        <p className="text-xl font-semibold truncate">{data.top_model.name}</p>
+        <h3 className="text-sm font-medium text-gray-500 mb-1">
+          Top Model
+        </h3>
+        <p className="text-lg font-semibold truncate" title={data.top_model.name}>
+          {data.top_model.name || 'none'}
+        </p>
         <div className="mt-1 text-xs text-gray-500">
           {data.top_model.usage_percent}% of usage
         </div>
       </div>
 
-      {/* Average Latency */}
+      {/* Latency */}
       <div className="bg-gray-50 p-4 rounded-md">
-        <h3 className="text-sm font-medium text-gray-500 mb-1">Avg Latency</h3>
-        <p className="text-2xl font-bold">{data.avg_latency_ms}ms</p>
+        <h3 className="text-sm font-medium text-gray-500 mb-1">
+          Avg. Latency
+        </h3>
+        <p className="text-lg font-semibold">
+          {data.avg_latency_ms} ms
+        </p>
         <div className="mt-1 text-xs text-gray-500">
-          response time
+          across all requests
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { fetchFeatureUsage } from '../../api/analytics';
-import type { FeatureUsageData } from '../../api/analytics';
+import { useFilters } from '../../contexts/FilterContext';
+import type { FeatureUsageData, FeatureData } from '../../api/analytics';
 
 interface FeatureUsageTableProps {
   metric: 'tokens' | 'cost';
@@ -10,16 +11,34 @@ const FeatureUsageTable = ({ metric }: FeatureUsageTableProps) => {
   const [data, setData] = useState<FeatureUsageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { filters } = useFilters();
+
+  // Format date for API request
+  const formatDateParam = (date: Date) => date.toISOString().split('T')[0];
 
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
-        const featureData = await fetchFeatureUsage(undefined, undefined, metric);
-        setData(featureData);
+        
+        // Use all filters including interval
+        const fromParam = formatDateParam(filters.from);
+        const toParam = formatDateParam(filters.to);
+        
+        const featuresData = await fetchFeatureUsage(
+          fromParam, 
+          toParam, 
+          metric,
+          10, // limit
+          filters.model,
+          filters.task,
+          filters.interval
+        );
+        
+        setData(featuresData);
         setError(null);
       } catch (err) {
-        console.error('Error fetching feature usage data:', err);
+        console.error('Error fetching feature usage:', err);
         setError('Failed to load feature data');
       } finally {
         setLoading(false);
@@ -27,15 +46,44 @@ const FeatureUsageTable = ({ metric }: FeatureUsageTableProps) => {
     };
 
     loadData();
-  }, [metric]);
+  }, [metric, filters.from, filters.to, filters.model, filters.task, filters.interval]);
+
+  // Also listen for filter-changed events
+  useEffect(() => {
+    const handleFilterChange = () => {
+      console.log('Filter change event detected in FeatureUsageTable');
+    };
+
+    window.addEventListener('filter-changed', handleFilterChange);
+    return () => {
+      window.removeEventListener('filter-changed', handleFilterChange);
+    };
+  }, []);
+
+  // Format values for display
+  const formatValue = (value: number | undefined): string => {
+    if (value === undefined || value === null) {
+      return metric === 'tokens' ? '0' : '$0.00';
+    }
+    
+    if (metric === 'tokens') {
+      return value >= 1000000 
+        ? `${(value / 1000000).toFixed(1)}M` 
+        : value >= 1000 
+        ? `${(value / 1000).toFixed(1)}K` 
+        : value.toString();
+    } else {
+      return `$${value.toFixed(2)}`;
+    }
+  };
 
   if (loading) {
     return (
-      <div className="animate-pulse space-y-3">
-        <div className="h-8 bg-gray-100 rounded-md w-full"></div>
-        <div className="h-8 bg-gray-100 rounded-md w-full"></div>
-        <div className="h-8 bg-gray-100 rounded-md w-full"></div>
-        <div className="h-8 bg-gray-100 rounded-md w-full"></div>
+      <div className="animate-pulse">
+        <div className="h-8 bg-gray-100 rounded mb-4"></div>
+        <div className="h-8 bg-gray-100 rounded mb-4"></div>
+        <div className="h-8 bg-gray-100 rounded mb-4"></div>
+        <div className="h-8 bg-gray-100 rounded"></div>
       </div>
     );
   }
@@ -48,65 +96,48 @@ const FeatureUsageTable = ({ metric }: FeatureUsageTableProps) => {
     );
   }
 
-  if (data.data.length === 0) {
+  // Ensure data.data is an array before using it
+  const features = Array.isArray(data.data) ? data.data : [];
+
+  // Apply task filter if needed
+  const taskFilterApplied = filters.task !== '*';
+  const filteredFeatures = taskFilterApplied
+    ? features.filter(item => item && item.feature === filters.task)
+    : features;
+
+  if (filteredFeatures.length === 0) {
     return (
       <div className="text-center py-6 text-gray-500">
-        No feature usage data available
+        No feature usage data available for the current filters
       </div>
     );
   }
 
-  // Format number for display
-  const formatNumber = (num: number): string => {
-    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
-    return num.toString();
-  };
-
-  // Format cost for display
-  const formatCost = (cost: number): string => {
-    return `$${cost.toFixed(2)}`;
-  };
-
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200">
+      <table className="min-w-full text-sm">
         <thead>
-          <tr>
-            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Feature
-            </th>
-            <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-              {metric === 'tokens' ? 'Tokens' : 'Cost'}
-            </th>
-            <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Requests
-            </th>
-            <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Latency
-            </th>
+          <tr className="text-left text-gray-500 border-b">
+            <th className="pb-2">Feature</th>
+            <th className="pb-2 text-right">{metric === 'tokens' ? 'Tokens' : 'Cost'}</th>
+            <th className="pb-2 text-right">%</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-200">
-          {data.data.map((feature) => (
-            <tr key={feature.feature} className="hover:bg-gray-50">
-              <td className="px-4 py-2 text-sm text-primary-text whitespace-nowrap">
-                {feature.feature}
-              </td>
-              <td className="px-4 py-2 text-sm text-right text-primary-text whitespace-nowrap">
-                {metric === 'tokens' 
-                  ? formatNumber(feature.total_tokens) 
-                  : formatCost(feature.total_cost)}
-                <span className="ml-1 text-xs text-gray-500">
-                  ({feature.percent}%)
+        <tbody>
+          {filteredFeatures.map((feature: FeatureData) => (
+            <tr 
+              key={feature.feature} 
+              className="hover:bg-gray-50 border-b border-gray-100"
+            >
+              <td className="py-2">
+                <span className="truncate block max-w-[180px]" title={feature.feature}>
+                  {feature.feature}
                 </span>
               </td>
-              <td className="px-4 py-2 text-sm text-right text-primary-text whitespace-nowrap">
-                {feature.request_count}
+              <td className="py-2 text-right">
+                {formatValue(metric === 'tokens' ? feature.total_tokens : feature.total_cost)}
               </td>
-              <td className="px-4 py-2 text-sm text-right text-primary-text whitespace-nowrap">
-                {feature.avg_latency_ms} ms
-              </td>
+              <td className="py-2 text-right">{feature.percent ?? 0}%</td>
             </tr>
           ))}
         </tbody>
