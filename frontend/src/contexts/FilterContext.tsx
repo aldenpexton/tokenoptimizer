@@ -12,7 +12,7 @@ export type FilterState = {
   to: Date         // default = now
   task: string     // '*' = all
   model: string    // '*' = all
-  interval: 'day' | 'week' | 'month'  // time aggregation
+  interval: 'day' | 'week' | 'month' | 'year'  // time aggregation
 };
 
 type FilterContextType = {
@@ -107,8 +107,8 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     if (modelParam) {
       newFilters.model = modelParam;
     }
-    if (intervalParam && ['day', 'week', 'month'].includes(intervalParam)) {
-      newFilters.interval = intervalParam as 'day' | 'week' | 'month';
+    if (intervalParam && ['day', 'week', 'month', 'year'].includes(intervalParam)) {
+      newFilters.interval = intervalParam as 'day' | 'week' | 'month' | 'year';
     }
 
     if (Object.keys(newFilters).length > 0) {

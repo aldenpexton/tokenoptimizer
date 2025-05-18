@@ -9,7 +9,7 @@ import type { TimeSeriesData } from '../../api/analytics';
 
 interface TokenUsageChartProps {
   metric: 'tokens' | 'cost';
-  interval: 'day' | 'week' | 'month';
+  interval: 'day' | 'week' | 'month' | 'year';
 }
 
 interface ChartDataPoint {
@@ -47,6 +47,12 @@ const formatDisplayLabel = (item: any, interval: string): string => {
   // For month view (calendar days)
   else if (interval === 'month') {
     // Keep original format, which should be something like "May 15"
+    return item.display_key;
+  }
+
+  // For year view (months)
+  else if (interval === 'year') {
+    // Keep original format, which should be month names like "Jan", "Feb", etc.
     return item.display_key;
   }
   
@@ -136,6 +142,22 @@ const generateCompletePeriods = (interval: string, filters: any): ChartDataPoint
       ));
     }
   }
+  else if (interval === 'year') {
+    // Generate all 12 months for the selected year
+    const year = to.getFullYear();
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    for (let month = 0; month < 12; month++) {
+      const key = monthNames[month];
+      const date = new Date(year, month, 1).toDateString();
+      
+      result.push(createEmptyDataPoint(
+        key,
+        key,
+        date
+      ));
+    }
+  }
   
   return result;
 };
@@ -209,6 +231,19 @@ const TokenUsageChart = ({ metric, interval }: TokenUsageChartProps) => {
           currentToParam = formatDateParam(newFrom); // Same date, backend will show all hours
           
           console.log(`Day adjustment: Using specific day ${newFrom.toLocaleDateString()} for hourly view`);
+        }
+        else if (interval === 'year') {
+          // For year view: ensure we're using a full year (Jan 1 - Dec 31)
+          const year = filters.to.getFullYear();
+          
+          // Create a date range for the entire year
+          const newFrom = new Date(year, 0, 1); // January 1
+          const newTo = new Date(year, 11, 31); // December 31
+          
+          currentFromParam = formatDateParam(newFrom);
+          currentToParam = formatDateParam(newTo);
+          
+          console.log(`Year adjustment: Using full year ${year}: ${currentFromParam} to ${currentToParam}`);
         }
         
         console.log(`Fetching time series data: ${currentFromParam} to ${currentToParam}, interval=${interval}, metric=${metric}`);
@@ -287,6 +322,13 @@ const TokenUsageChart = ({ metric, interval }: TokenUsageChartProps) => {
     
     adjustedFilters.from = dayStart;
     adjustedFilters.to = dayEnd;
+  }
+  else if (interval === 'year') {
+    // Ensure we're showing a full year (Jan 1 - Dec 31)
+    const year = filters.to.getFullYear();
+    
+    adjustedFilters.from = new Date(year, 0, 1); // January 1
+    adjustedFilters.to = new Date(year, 11, 31); // December 31
   }
 
   const fullRangePeriods = generateCompletePeriods(interval, adjustedFilters);
@@ -429,6 +471,8 @@ const TokenUsageChart = ({ metric, interval }: TokenUsageChartProps) => {
     timeframeTitle = 'Daily Usage (Week)';
   } else if (interval === 'month') {
     timeframeTitle = 'Daily Usage (Month)';
+  } else if (interval === 'year') {
+    timeframeTitle = `Monthly Usage (${adjustedFilters.to.getFullYear()})`;
   }
 
   return (
@@ -448,6 +492,7 @@ const TokenUsageChart = ({ metric, interval }: TokenUsageChartProps) => {
               // For day view (24 hours), show every 4 hours
               // For month view (up to 31 days), show every 3 days
               // For week view (7 days), show all days
+              // For year view (12 months), show all months
               interval={interval === 'day' ? 4 : interval === 'month' ? 2 : 0}
               tickMargin={8}
               // For day view with 24 hours, ensure we show the hour labels (like "12 AM")

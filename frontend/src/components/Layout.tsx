@@ -1,8 +1,10 @@
 import { Outlet } from 'react-router-dom';
-import { BarChart3, Home, Settings, List, PieChart } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { BarChart3, Home, Settings, List, PieChart, TrendingDown } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
 
 const Layout = () => {
+  const location = useLocation();
+  
   return (
     <div className="flex h-screen bg-background">
       {/* Sidebar */}
@@ -15,7 +17,7 @@ const Layout = () => {
             <li>
               <Link 
                 to="/" 
-                className="flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text"
+                className={`flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text ${location.pathname === '/' ? 'bg-gray-100 font-medium' : ''}`}
               >
                 <Home size={18} />
                 <span>Dashboard</span>
@@ -23,8 +25,17 @@ const Layout = () => {
             </li>
             <li>
               <Link 
+                to="/optimization" 
+                className={`flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text ${location.pathname === '/optimization' ? 'bg-gray-100 font-medium' : ''}`}
+              >
+                <TrendingDown size={18} />
+                <span>Cost Optimization</span>
+              </Link>
+            </li>
+            <li>
+              <Link 
                 to="/usage" 
-                className="flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text"
+                className={`flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text ${location.pathname === '/usage' ? 'bg-gray-100 font-medium' : ''}`}
               >
                 <BarChart3 size={18} />
                 <span>Usage</span>
@@ -33,7 +44,7 @@ const Layout = () => {
             <li>
               <Link 
                 to="/models" 
-                className="flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text"
+                className={`flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text ${location.pathname === '/models' ? 'bg-gray-100 font-medium' : ''}`}
               >
                 <PieChart size={18} />
                 <span>Models</span>
@@ -42,7 +53,7 @@ const Layout = () => {
             <li>
               <Link 
                 to="/logs" 
-                className="flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text"
+                className={`flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text ${location.pathname === '/logs' ? 'bg-gray-100 font-medium' : ''}`}
               >
                 <List size={18} />
                 <span>Logs</span>
@@ -51,7 +62,7 @@ const Layout = () => {
             <li>
               <Link 
                 to="/settings" 
-                className="flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text"
+                className={`flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text ${location.pathname === '/settings' ? 'bg-gray-100 font-medium' : ''}`}
               >
                 <Settings size={18} />
                 <span>Settings</span>
@@ -68,7 +79,14 @@ const Layout = () => {
       <main className="flex-1 overflow-auto">
         {/* Header */}
         <header className="bg-card border-b border-gray-200 p-4 flex justify-between items-center sticky top-0 z-10">
-          <h2 className="text-xl font-semibold">Dashboard</h2>
+          <h2 className="text-xl font-semibold">
+            {location.pathname === '/' ? 'Dashboard' : 
+             location.pathname === '/optimization' ? 'Cost Optimization' : 
+             location.pathname === '/usage' ? 'Usage' :
+             location.pathname === '/models' ? 'Models' :
+             location.pathname === '/logs' ? 'Logs' :
+             location.pathname === '/settings' ? 'Settings' : 'Dashboard'}
+          </h2>
         </header>
 
         {/* Content Area */}

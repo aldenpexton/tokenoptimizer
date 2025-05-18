@@ -116,7 +116,7 @@ export const fetchSummary = async (
   endDate?: string,
   model?: string,
   task?: string,
-  interval?: 'day' | 'week' | 'month'
+  interval?: 'day' | 'week' | 'month' | 'year'
 ): Promise<SummaryData> => {
   const params = new URLSearchParams();
   if (startDate) params.append('start_date', startDate);
@@ -137,7 +137,7 @@ export const fetchSummary = async (
 export const fetchTimeSeries = async (
   startDate?: string, 
   endDate?: string,
-  interval: 'day' | 'week' | 'month' = 'day',
+  interval: 'day' | 'week' | 'month' | 'year' = 'day',
   metric: 'tokens' | 'cost' = 'tokens',
   model?: string,
   task?: string
@@ -171,7 +171,7 @@ export const fetchModelDistribution = async (
   limit: number = 10,
   model?: string,
   task?: string,
-  interval?: 'day' | 'week' | 'month'
+  interval?: 'day' | 'week' | 'month' | 'year'
 ): Promise<ModelDistributionData> => {
   const params = new URLSearchParams();
   if (startDate) params.append('start_date', startDate);
@@ -196,7 +196,7 @@ export const fetchFeatureUsage = async (
   limit: number = 10,
   model?: string,
   task?: string,
-  interval?: 'day' | 'week' | 'month'
+  interval?: 'day' | 'week' | 'month' | 'year'
 ): Promise<FeatureUsageData> => {
   const params = new URLSearchParams();
   if (startDate) params.append('start_date', startDate);
