@@ -110,6 +110,34 @@ export interface LogsData {
   };
 }
 
+// Cost optimization data types
+export interface CostDataPoint {
+  period: string;
+  display_date: string;
+  actualModel: string;
+  actualCost: number;
+  alternativeModel: string;
+  alternativeCost: number;
+  savings: number;
+  percentSavings: number;
+  tokens: number;
+}
+
+export interface CostOptimizationData {
+  data: CostDataPoint[];
+  summary: {
+    totalActualCost: number;
+    totalAlternativeCost: number;
+    totalSavings: number;
+    percentSavings: number;
+  };
+  time_period?: {
+    start_date: string;
+    end_date: string;
+    interval: string;
+  };
+}
+
 // API functions
 export const fetchSummary = async (
   startDate?: string, 
@@ -236,4 +264,50 @@ export const fetchLogs = async (
   
   const response = await axios.get(`${API_BASE_URL}/analytics/logs`, { params });
   return response.data;
+};
+
+export const fetchCostOptimization = async (
+  startDate?: string, 
+  endDate?: string,
+  interval: 'day' | 'week' | 'month' | 'year' = 'day',
+  model?: string,
+  task?: string
+): Promise<CostOptimizationData> => {
+  const params = new URLSearchParams();
+  if (startDate) params.append('start_date', startDate);
+  if (endDate) params.append('end_date', endDate);
+  params.append('interval', interval);
+  
+  // Always send model/task parameters - backend will handle '*' as all models/tasks
+  params.append('model', model || '*');
+  params.append('task', task || '*');
+  
+  console.log('Fetching cost optimization data with params:', Object.fromEntries(params.entries()));
+  
+  try {
+    const response = await axios.get(`${API_BASE_URL}/analytics/cost-optimization`, { params });
+    
+    // Log the response shape for debugging
+    console.log(`Cost optimization response: ${response.data.data?.length || 0} data points`);
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching cost optimization data:', error);
+    
+    // Return a fallback empty response
+    return {
+      data: [],
+      summary: {
+        totalActualCost: 0,
+        totalAlternativeCost: 0,
+        totalSavings: 0,
+        percentSavings: 0
+      },
+      time_period: {
+        start_date: startDate || new Date().toISOString().split('T')[0],
+        end_date: endDate || new Date().toISOString().split('T')[0],
+        interval: interval
+      }
+    };
+  }
 }; 

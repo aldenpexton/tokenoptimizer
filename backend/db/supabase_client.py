@@ -88,7 +88,6 @@ class SupabaseClient:
                     'source_output_price': source_pricing['output_price'],
                     'alt_input_price': alt_pricing['input_price'],
                     'alt_output_price': alt_pricing['output_price'],
-                    'notes': alt['notes'],
                     'is_recommended': alt['is_recommended']
                 })
                 
@@ -391,14 +390,24 @@ class SupabaseClient:
             # Sort by timestamp
             logs.sort(key=lambda x: x.get('timestamp', ''))
             
-            def extract_date_key(timestamp, interval_type):
+            # Helper function to extract date key and display date
+            # Defined as instance methods to access properly
+            def extract_date_key(self, timestamp, interval_type):
                 try:
                     # Parse the timestamp into a datetime object
-                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    if isinstance(timestamp, str):
+                        dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    else:
+                        dt = timestamp  # Already a datetime object
                     
                     if interval_type == 'hour':
                         # Format: "12 PM"
-                        return dt.strftime('%-I %p')
+                        hour = dt.hour
+                        am_pm = "AM" if hour < 12 else "PM"
+                        hour_12 = hour % 12
+                        if hour_12 == 0:
+                            hour_12 = 12
+                        return f"{hour_12} {am_pm}"
                     elif interval_type == 'day':
                         # Format: "May 16"
                         return dt.strftime('%b %-d')
@@ -416,7 +425,7 @@ class SupabaseClient:
                     print(f"Error formatting date key from timestamp {timestamp}: {str(e)}")
                     return "Unknown Date"
             
-            def extract_display_date(timestamp, interval_type):
+            def extract_display_date(self, timestamp, interval_type):
                 try:
                     dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                     
@@ -447,8 +456,8 @@ class SupabaseClient:
                     continue
                     
                 # Extract key based on interval
-                key = extract_date_key(timestamp, interval)
-                display_date = extract_display_date(timestamp, interval)
+                key = extract_date_key(self, timestamp, interval)
+                display_date = extract_display_date(self, timestamp, interval)
                 
                 if key not in grouped_data:
                     grouped_data[key] = {
@@ -650,6 +659,341 @@ class SupabaseClient:
             import traceback
             traceback.print_exc()
             return {"data": []}
+
+    def get_cost_optimization_data(self, start_date: str, end_date: str,
+                                interval: str = 'day',
+                                model: Optional[str] = None,
+                                endpoint_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get cost optimization data comparing current model usage with alternatives
+        
+        Args:
+            start_date: Start date in YYYY-MM-DD format
+            end_date: End date in YYYY-MM-DD format
+            interval: Time grouping ('day', 'week', 'month', 'year')
+            model: Optional model filter
+            endpoint_name: Optional endpoint/feature filter
+            
+        Returns:
+            Dictionary with time series data for cost optimization
+        """
+        print(f"Fetching cost optimization data: interval={interval}, dates={start_date} to {end_date}")
+        
+        # Get token logs with filtering
+        logs = self.get_token_logs(
+            start_date, 
+            end_date, 
+            model=model, 
+            endpoint_name=endpoint_name
+        )
+        
+        # Dictionary to store time-based aggregated data
+        # Key format depends on interval (hour, day, week, month, year)
+        aggregated_data = {}
+        
+        # Generate all possible dates for the given interval to ensure proper spacing
+        start_dt = datetime.fromisoformat(start_date)
+        end_dt = datetime.fromisoformat(end_date)
+        
+        # Generate all days in the range (important for proper X-axis spacing)
+        current_dt = start_dt
+        print(f"Generating data points from {start_dt} to {end_dt} with interval {interval}")
+        day_count = 0
+        
+        while current_dt <= end_dt:
+            # For day view (hourly), we need to generate all 24 hours
+            if interval == 'day':
+                # Generate 24 hourly data points for the day
+                for hour in range(24):
+                    # Create a datetime for this specific hour
+                    hour_dt = datetime(
+                        current_dt.year, 
+                        current_dt.month, 
+                        current_dt.day,
+                        hour, 0, 0
+                    )
+                    
+                    # Format the hour display (12 AM, 1 AM, etc.)
+                    hour_12 = hour % 12
+                    if hour_12 == 0:
+                        hour_12 = 12
+                    period = "AM" if hour < 12 else "PM"
+                    key = f"{hour_12} {period}"
+                    display_date = f"{hour_dt.strftime('%b %-d, %Y')}, {key}"
+                    
+                    # Debug print for a few hours
+                    if hour % 6 == 0:
+                        print(f"Hour point: {hour_dt} -> key='{key}', display_date='{display_date}'")
+                    
+                    # Create an entry for this hour with zero values
+                    aggregated_data[key] = {
+                        'period': key,
+                        'display_date': display_date,
+                        'actualModel': model if model else '',
+                        'alternativeModel': '',
+                        'actualCost': 0,
+                        'alternativeCost': 0,
+                        'savings': 0,
+                        'percentSavings': 0,
+                        'tokens': 0
+                    }
+                
+                # After generating all 24 hours for the day, break the loop
+                # since we only need one day's worth of hours for day view
+                break
+            else:
+                # Non-day views (week, month, year) - original code
+                # Generate the key and display date
+                key = self._extract_date_key(current_dt, interval)
+                display_date = self._extract_display_date(current_dt, interval)
+                
+                # Print some debug info about key generation
+                if day_count % 5 == 0 or day_count < 3:  # Only print every 5th day to avoid log spam
+                    print(f"Date point: {current_dt} -> key='{key}', display_date='{display_date}'")
+                day_count += 1
+                
+                # Create an entry with zero values
+                aggregated_data[key] = {
+                    'period': key,
+                    'display_date': display_date,
+                    'actualModel': model if model else '',
+                    'alternativeModel': '',
+                    'actualCost': 0,
+                    'alternativeCost': 0,
+                    'savings': 0,
+                    'percentSavings': 0,
+                    'tokens': 0
+                }
+                
+                # Increment based on interval
+                if interval == 'week':
+                    current_dt += timedelta(days=1)
+                elif interval == 'month':
+                    current_dt += timedelta(days=1)
+                elif interval == 'year':
+                    # Move to next month
+                    if current_dt.month == 12:
+                        current_dt = current_dt.replace(year=current_dt.year + 1, month=1)
+                    else:
+                        current_dt = current_dt.replace(month=current_dt.month + 1)
+                else:
+                    # Default to daily
+                    current_dt += timedelta(days=1)
+        
+        if not logs:
+            # Return the zero-filled data to maintain consistent X-axis
+            return {"data": list(aggregated_data.values())}
+        
+        for log in logs:
+            timestamp = log.get('timestamp', '')
+            if not timestamp:
+                continue
+                
+            # Extract key based on interval for grouping
+            key = self._extract_date_key(timestamp, interval)
+            display_date = self._extract_display_date(timestamp, interval)
+            
+            # Get the source model and its pricing
+            source_model = log.get('model', '')
+            if not source_model:
+                continue
+                
+            # Get tokens from the log
+            prompt_tokens = log.get('prompt_tokens', 0) or 0
+            completion_tokens = log.get('completion_tokens', 0) or 0
+            total_tokens = log.get('total_tokens', 0) or 0
+            actual_cost = log.get('total_cost', 0) or 0
+            
+            # Initialize or get the period data
+            period_data = aggregated_data.get(key, {
+                'period': key,
+                'display_date': display_date,
+                'actualModel': source_model,
+                'alternativeModel': '',
+                'actualCost': 0,
+                'alternativeCost': 0,
+                'savings': 0,
+                'percentSavings': 0,
+                'tokens': 0
+            })
+            
+            # Add the actual cost and tokens to the period
+            period_data['actualCost'] += actual_cost
+            period_data['tokens'] += total_tokens
+            
+            # Ensure the model name is set (this could be overwritten by later logs if multiple models)
+            if not period_data['actualModel'] or period_data['actualModel'] == '':
+                period_data['actualModel'] = source_model
+            
+            # Get alternatives for this model
+            alternatives = self.get_model_alternatives(source_model)
+            
+            # If we have alternatives, calculate potential savings
+            if alternatives and len(alternatives) > 0:
+                # Use the first alternative (highest similarity score)
+                alt = alternatives[0]
+                alt_model = alt.get('alternative_model', '')
+                
+                if alt_model:
+                    # Set the alternative model name for display
+                    if not period_data['alternativeModel']:
+                        period_data['alternativeModel'] = alt_model
+                    
+                    # Get pricing for alternative model
+                    alt_pricing = self.get_model_pricing(alt_model)
+                    
+                    if alt_pricing:
+                        # Calculate what this request would have cost with alternative model
+                        alt_input_price = float(alt_pricing.get('input_price', 0))
+                        alt_output_price = float(alt_pricing.get('output_price', 0))
+                        
+                        alt_input_cost = (prompt_tokens / 1000) * alt_input_price
+                        alt_output_cost = (completion_tokens / 1000) * alt_output_price
+                        alt_total_cost = alt_input_cost + alt_output_cost
+                        
+                        # Add to the alternative cost and calculate savings
+                        period_data['alternativeCost'] += alt_total_cost
+                        period_data['savings'] += max(0, actual_cost - alt_total_cost)
+            else:
+                # Handle case where there's no cheaper alternative (e.g., when using claude-3-haiku)
+                # In this case, use the same cost for both actual and alternative
+                period_data['alternativeCost'] += actual_cost
+                # Savings remains 0
+            
+            # Update the data dictionary
+            aggregated_data[key] = period_data
+        
+        # Calculate percentage savings for each period
+        result_data = []
+        for key, period_data in aggregated_data.items():
+            if period_data['actualCost'] > 0:
+                period_data['percentSavings'] = round((period_data['savings'] / period_data['actualCost']) * 100, 1)
+            
+            # Ensure values are rounded appropriately for display
+            period_data['actualCost'] = round(period_data['actualCost'], 4)
+            period_data['alternativeCost'] = round(period_data['alternativeCost'], 4)
+            period_data['savings'] = round(period_data['savings'], 4)
+            
+            result_data.append(period_data)
+        
+        # Sort data by period for consistent display - use natural date sorting for the period
+        # Convert periods to dates for proper sorting
+        if interval == 'month':
+            # Sort by day number
+            month = start_dt.strftime('%b')
+            
+            def extract_day(period):
+                # Extract the day number from "May 15" format
+                day_str = period.split()[-1]
+                try:
+                    return int(day_str)
+                except ValueError:
+                    return 0
+                    
+            result_data.sort(key=lambda x: extract_day(x['period']))
+        else:
+            # Default sort by period string
+            result_data.sort(key=lambda x: x['period'])
+        
+        # For debugging
+        print(f"Generated {len(result_data)} data points for {interval} view")
+        
+        return {
+            "data": result_data,
+            "time_period": {
+                "start_date": start_date,
+                "end_date": end_date,
+                "interval": interval
+            }
+        }
+    
+    def _extract_date_key(self, timestamp, interval_type):
+        """Extract a key for grouping data based on timestamp and interval"""
+        try:
+            # Parse the timestamp into a datetime object
+            if isinstance(timestamp, str):
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            else:
+                dt = timestamp  # Already a datetime object
+            
+            if interval_type == 'day':
+                # Hourly format: "12 PM"
+                hour = dt.hour
+                am_pm = "AM" if hour < 12 else "PM"
+                hour_12 = hour % 12
+                if hour_12 == 0:
+                    hour_12 = 12
+                return f"{hour_12} {am_pm}"
+            elif interval_type == 'week':
+                # Day of week format: "Mon 15"
+                return dt.strftime('%a %-d')
+            elif interval_type == 'month':
+                # For month view, match the Dashboard format: "May 13"
+                return dt.strftime('%b %-d')
+            elif interval_type == 'year':
+                # Month format: "Jan"
+                return dt.strftime('%b')
+            else:
+                # Default format: full date
+                return dt.strftime('%Y-%m-%d')
+        except Exception as e:
+            print(f"Error formatting date key from timestamp {timestamp}: {str(e)}")
+            return "Unknown Date"
+    
+    def _extract_display_date(self, timestamp, interval_type):
+        """Extract a display date string based on timestamp and interval"""
+        try:
+            # Parse the timestamp into a datetime object
+            if isinstance(timestamp, str):
+                # Handle potential timezone format issues
+                try:
+                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                except ValueError:
+                    # Fallback for various timestamp formats
+                    if 'T' in timestamp:
+                        dt = datetime.strptime(timestamp.split('T')[0], '%Y-%m-%d')
+                    else:
+                        dt = datetime.strptime(timestamp, '%Y-%m-%d')
+            else:
+                dt = timestamp  # Already a datetime object
+            
+            if interval_type == 'day':
+                # Format: "May 16, 2025 12 PM"
+                return dt.strftime('%b %-d, %Y')
+            elif interval_type == 'week':
+                # Format: "Sunday, May 11" 
+                return dt.strftime('%A, %b %-d')
+            elif interval_type == 'month':
+                # Format: "May 16, 2025" - include year for clarity
+                return dt.strftime('%b %-d, %Y')
+            elif interval_type == 'year':
+                # Format: "January 2023"
+                return dt.strftime('%B %Y')
+            else:
+                # Default format: full date
+                return dt.strftime('%Y-%m-%d')
+        except Exception as e:
+            # Log the error with more detail for debugging
+            print(f"Error formatting display date from timestamp '{timestamp}' (type: {type(timestamp)}): {str(e)}")
+            
+            # Create a more helpful fallback than "Unknown Date"
+            if isinstance(timestamp, datetime):
+                try:
+                    return timestamp.strftime('%b %-d, %Y')
+                except:
+                    pass
+            elif isinstance(timestamp, str):
+                # Try to extract a date-like format if possible
+                if interval_type == 'month' and len(timestamp) >= 10:
+                    try:
+                        # Try to parse just the date part
+                        dt = datetime.strptime(timestamp[:10], '%Y-%m-%d')
+                        return dt.strftime('%b %-d, %Y')
+                    except:
+                        pass
+            
+            # If all else fails
+            return "Unknown Date"
 
     def get_distinct_values(self, field: str, start_date: str = None, end_date: str = None) -> List[str]:
         """

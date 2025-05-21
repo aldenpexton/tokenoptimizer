@@ -169,6 +169,52 @@ def get_logs():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@analytics_bp.route('/analytics/cost-optimization', methods=['GET'])
+def get_cost_optimization():
+    """
+    Get cost optimization data for the given time period
+    
+    Query parameters:
+    - start_date: Start date in YYYY-MM-DD format (required)
+    - end_date: End date in YYYY-MM-DD format (required)
+    - interval: Time grouping ('day', 'week', 'month', 'year') (default: 'day')
+    - model: Model name to filter by (optional)
+    - task: Task/endpoint name to filter by (optional)
+    """
+    start_date = parse_date_param(request.args.get('start_date'))
+    end_date = parse_date_param(request.args.get('end_date'), 0)  # Default to today
+    interval = request.args.get('interval', 'day')  # day, week, month, year
+    
+    # Process filters to handle '*' as "all"
+    model = request.args.get('model', '*')
+    task = request.args.get('task', '*')
+    
+    try:
+        # Get optimization data from analytics service
+        optimization_data = analytics_service.get_cost_optimization(
+            start_date,
+            end_date,
+            interval,
+            model,
+            task
+        )
+        
+        return jsonify(optimization_data)
+    except Exception as e:
+        current_app.logger.error(f"Error in cost optimization API: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "data": [],
+            "summary": {
+                "totalActualCost": 0,
+                "totalAlternativeCost": 0,
+                "totalSavings": 0,
+                "percentSavings": 0
+            },
+            "error": str(e)
+        })
+
 @analytics_bp.route('/distinct', methods=['GET'])
 def get_distinct_values():
     """

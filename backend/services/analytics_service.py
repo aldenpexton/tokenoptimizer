@@ -423,4 +423,101 @@ class AnalyticsService:
                 "model": model,
                 "feature": feature
             }
-        } 
+        }
+    
+    def get_cost_optimization(self, start_date, end_date, interval, model=None, task=None):
+        """
+        Get cost optimization data comparing current model usage with alternatives
+        
+        Args:
+            start_date: Start date in YYYY-MM-DD format
+            end_date: End date in YYYY-MM-DD format
+            interval: 'day', 'week', 'month', or 'year'
+            model: Optional model name filter
+            task: Optional task/endpoint name filter
+        """
+        print(f"Fetching cost optimization data: interval={interval}, dates={start_date} to {end_date}")
+        
+        # Adjust date range based on interval
+        if interval == 'day':
+            # For day view, use only the end date
+            start_date = end_date
+            print(f"Day view requested: using only {end_date} for cost optimization")
+        elif interval == 'week' and start_date != end_date:
+            # For week view, get the week containing the end date
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+            # Find Sunday (start of week)
+            days_from_sunday = end_dt.weekday() + 1  # +1 because weekday() returns 0 for Monday
+            if days_from_sunday == 7:  # If today is Sunday
+                days_from_sunday = 0
+            sunday = end_dt - timedelta(days=days_from_sunday)
+            saturday = sunday + timedelta(days=6)
+            
+            start_date = sunday.strftime('%Y-%m-%d')
+            end_date = saturday.strftime('%Y-%m-%d')
+            print(f"Week view requested: using week from {start_date} to {end_date}")
+        elif interval == 'month' and start_date != end_date:
+            # For month view, get the full month containing the end date
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+            # First day of month
+            first_day = end_dt.replace(day=1)
+            # Last day of month
+            if end_dt.month == 12:
+                last_day = end_dt.replace(year=end_dt.year + 1, month=1, day=1) - timedelta(days=1)
+            else:
+                last_day = end_dt.replace(month=end_dt.month + 1, day=1) - timedelta(days=1)
+            
+            start_date = first_day.strftime('%Y-%m-%d')
+            end_date = last_day.strftime('%Y-%m-%d')
+            print(f"Month view requested: using FULL month from {start_date} to {end_date}")
+        elif interval == 'year' and start_date != end_date:
+            # For year view, get the full year
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+            # First day of year
+            first_day = end_dt.replace(month=1, day=1)
+            # Last day of year
+            last_day = end_dt.replace(month=12, day=31)
+            
+            start_date = first_day.strftime('%Y-%m-%d')
+            end_date = last_day.strftime('%Y-%m-%d')
+            print(f"Year view requested: using year from {start_date} to {end_date}")
+        
+        # Apply the model and task filters
+        filtered_model = None if model == '*' else model
+        filtered_task = None if task == '*' else task
+        
+        # Get cost optimization data
+        data = self.db_client.get_cost_optimization_data(
+            start_date,
+            end_date,
+            interval,
+            model=filtered_model,
+            endpoint_name=filtered_task
+        )
+        
+        # Calculate total savings and percentages
+        if data and 'data' in data and data['data']:
+            total_actual_cost = sum(item.get('actualCost', 0) for item in data['data'])
+            total_alternative_cost = sum(item.get('alternativeCost', 0) for item in data['data'])
+            total_savings = sum(item.get('savings', 0) for item in data['data'])
+            
+            # Add summary information
+            data['summary'] = {
+                'totalActualCost': round(total_actual_cost, 4),
+                'totalAlternativeCost': round(total_alternative_cost, 4),
+                'totalSavings': round(total_savings, 4),
+                'percentSavings': round((total_savings / total_actual_cost * 100), 1) if total_actual_cost > 0 else 0
+            }
+        else:
+            # Provide empty summary
+            data['summary'] = {
+                'totalActualCost': 0,
+                'totalAlternativeCost': 0,
+                'totalSavings': 0,
+                'percentSavings': 0
+            }
+        
+        return data
+    
+    def _process_log_entry(self, log):
+        """Process a log entry to ensure consistent field names and types""" 

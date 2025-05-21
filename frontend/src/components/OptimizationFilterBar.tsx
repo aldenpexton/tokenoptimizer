@@ -19,7 +19,7 @@ const INTERVAL_OPTIONS = [
 ];
 
 const OptimizationFilterBar = () => {
-  const { filters, setFilters, taskOptions, isLoading } = useFilters();
+  const { filters, setFilters, taskOptions, modelOptions, isLoading } = useFilters();
   const [activePreset, setActivePreset] = useState<string>('30d');
   const [showIntervalDropdown, setShowIntervalDropdown] = useState(false);
   const intervalDropdownRef = useRef<HTMLDivElement>(null);
@@ -247,8 +247,24 @@ const OptimizationFilterBar = () => {
         </button>
       </div>
       
+      {/* Model Filter */}
+      <div className="flex-1 min-w-[140px]">
+        <select
+          className="w-full bg-black text-white border border-gray-700 rounded-md px-3 py-2 text-sm"
+          value={filters.model}
+          onChange={(e) => setFilters({ model: e.target.value })}
+          disabled={isLoading}
+        >
+          {modelOptions.map(option => (
+            <option key={option} value={option}>
+              {option === '*' ? 'All Models' : option}
+            </option>
+          ))}
+        </select>
+      </div>
+      
       {/* Task Filter */}
-      <div className="flex-1">
+      <div className="flex-1 min-w-[140px]">
         <select
           className="w-full bg-black text-white border border-gray-700 rounded-md px-3 py-2 text-sm"
           value={filters.task}
