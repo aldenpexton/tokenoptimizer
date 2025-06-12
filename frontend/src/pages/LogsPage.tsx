@@ -24,7 +24,63 @@ const LogsPage: React.FC = () => {
   });
 
   if (isLoading) {
-    return <div className="p-4">Loading...</div>;
+    return (
+      <div className="p-6 space-y-6">
+        <div className="h-8 w-48 bg-gradient-to-r from-primary-100 to-purple-100 rounded animate-pulse mb-6"></div>
+        
+        {/* Table Loading State */}
+        <div className="bg-white shadow-stripe-sm rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-primary-200">
+              <thead className="bg-primary-50">
+                <tr>
+                  {['Timestamp', 'Model', 'Endpoint', 'Tokens', 'Cost', 'Provider'].map((header) => (
+                    <th key={header} className="px-6 py-3 text-left">
+                      <div className="h-4 w-20 bg-gradient-to-r from-primary-100 to-purple-100 rounded animate-pulse"></div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-primary-200">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <tr key={i}>
+                    <td className="px-6 py-4">
+                      <div className="h-4 w-32 bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="h-4 w-24 bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="h-4 w-28 bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="h-4 w-16 bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="h-4 w-16 bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="h-4 w-20 bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          
+          {/* Pagination Loading State */}
+          <div className="px-6 py-4 flex items-center justify-between border-t border-primary-200">
+            <div className="flex-1 flex justify-between items-center">
+              <div className="h-4 w-48 bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+              <div className="flex space-x-2">
+                <div className="h-8 w-20 bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+                <div className="h-8 w-20 bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

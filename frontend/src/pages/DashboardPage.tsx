@@ -16,9 +16,19 @@ const useRecommendations = (filters?: FilterParams) => {
 };
 
 const DashboardPage: React.FC = () => {
-  const [filters, setFilters] = React.useState<FilterParams>({
-    models: [],
-    endpoints: []
+  // Global filters state including date range
+  const [filters, setFilters] = React.useState<FilterParams>(() => {
+    const end = new Date();
+    const start = new Date();
+    start.setMonth(start.getMonth() - 12);
+    
+    return {
+      models: [],
+      endpoints: [],
+      providers: [],
+      start_date: start.toISOString(),
+      end_date: end.toISOString()
+    };
   });
   const [showSpend, setShowSpend] = useState(false);
 
@@ -28,7 +38,60 @@ const DashboardPage: React.FC = () => {
   const { data: recommendations, isLoading: recommendationsLoading } = useRecommendations(filters);
 
   if (summaryLoading || trendLoading || recommendationsLoading) {
-    return <div className="p-4">Loading...</div>;
+    return (
+      <div className="p-6 space-y-6">
+        {/* Filter Bar Loading State - match the height of FilterBar */}
+        <div className="bg-white p-4 rounded-lg shadow-sm">
+          <div className="flex flex-wrap gap-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex-1 min-w-[200px]">
+                <div className="h-5 w-24 bg-gradient-to-r from-primary-100 to-purple-100 rounded animate-pulse mb-2"></div>
+                <div className="h-[144px] bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Summary Cards Loading State */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="bg-white rounded-lg shadow-stripe-sm p-6">
+              <div className="h-5 w-32 bg-gradient-to-r from-primary-100 to-purple-100 rounded animate-pulse mb-3"></div>
+              <div className="h-8 w-40 bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+            </div>
+          ))}
+        </div>
+
+        {/* Chart Loading State */}
+        <div className="bg-white rounded-lg shadow-stripe-sm p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="h-8 w-48 bg-gradient-to-r from-primary-100 to-purple-100 rounded animate-pulse"></div>
+            <div className="flex items-center space-x-2">
+              <div className="h-8 w-20 bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+              <div className="h-8 w-20 bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+            </div>
+          </div>
+          <div className="h-[400px] bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+        </div>
+
+        {/* Breakdowns Loading State */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="bg-white rounded-lg shadow-stripe-sm p-6">
+              <div className="h-5 w-32 bg-gradient-to-r from-primary-100 to-purple-100 rounded animate-pulse mb-4"></div>
+              <div className="space-y-4">
+                {[1, 2, 3, 4].map((j) => (
+                  <div key={j} className="flex justify-between items-center">
+                    <div className="h-4 w-24 bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+                    <div className="h-4 w-16 bg-gradient-to-r from-primary-50 to-purple-50 rounded animate-pulse"></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   const totalPotentialSavings = recommendations?.total_potential_savings || 0;
@@ -36,7 +99,7 @@ const DashboardPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Global Filters */}
-      <FilterBar onFiltersChange={setFilters} />
+      <FilterBar filters={filters} onFiltersChange={setFilters} />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

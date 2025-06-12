@@ -11,6 +11,8 @@ import io
 import csv
 from zoneinfo import ZoneInfo
 from postgrest import Client
+from functools import lru_cache
+import hashlib
 
 # Load environment variables from root directory
 env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
@@ -115,57 +117,54 @@ MODEL_CHARACTERISTICS = {
 def parse_filters() -> FilterParams:
     """Parse and validate filter parameters from request"""
     try:
-        # Get time granularity with validation
-        granularity = request.args.get('granularity', TimeGranularity.DAY.value).lower()
-        if granularity not in [e.value for e in TimeGranularity]:
-            raise ValueError(f"Invalid granularity. Must be one of: {[e.value for e in TimeGranularity]}")
-        time_granularity = TimeGranularity(granularity)
-
-        # Parse end date with validation
-        end_date = request.args.get('end_date')
-        if end_date:
-            try:
-                end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-            except ValueError:
-                raise ValueError("Invalid end_date format. Must be ISO format (YYYY-MM-DDTHH:MM:SSZ)")
-        else:
-            end_date = datetime.now(UTC)
-
-        # Parse start date if provided
-        start_date = request.args.get('start_date')
-        if start_date:
-            try:
-                start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-            except ValueError:
-                raise ValueError("Invalid start_date format. Must be ISO format (YYYY-MM-DDTHH:MM:SSZ)")
-        else:
-            # Calculate start date based on granularity only if not provided
-            if time_granularity == TimeGranularity.YEAR:
-                start_date = end_date.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-            elif time_granularity == TimeGranularity.MONTH:
-                start_date = end_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            elif time_granularity == TimeGranularity.WEEK:
-                start_date = end_date - timedelta(days=end_date.weekday())
-                start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            elif time_granularity == TimeGranularity.DAY:
-                start_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            else:  # HOUR
-                start_date = end_date.replace(minute=0, second=0, microsecond=0)
-
-        # Get and validate model filters
-        models = request.args.getlist('model')
-        models = [model.strip() for model in models if model.strip()]
-
-        # Get and validate endpoint filters
-        endpoints = request.args.getlist('endpoint')
-        endpoints = [endpoint.strip() for endpoint in endpoints if endpoint.strip()]
-
-        # Get and validate provider filters
-        providers = request.args.getlist('provider')
-        providers = [provider.strip() for provider in providers if provider.strip()]
-
+        # Get query parameters
+        end_date = request.args.get('end_date', datetime.now(UTC).isoformat())
+        start_date = request.args.get('start_date', (datetime.fromisoformat(end_date.replace('Z', '+00:00')) - timedelta(days=365)).isoformat())
+        
+        # Clean and validate models (handle both 'model' and 'models')
+        models = [
+            model.strip()
+            for model in (request.args.getlist('model') + request.args.getlist('models'))
+            if model and model.strip()
+        ]
+        
+        # Clean and validate endpoints (handle both 'endpoint' and 'endpoints')
+        endpoints = [
+            endpoint.strip()
+            for endpoint in (request.args.getlist('endpoint') + request.args.getlist('endpoints'))
+            if endpoint and endpoint.strip()
+        ]
+        
+        # Clean and validate providers (handle both 'provider' and 'providers')
+        providers = [
+            provider.strip()
+            for provider in (request.args.getlist('provider') + request.args.getlist('providers'))
+            if provider and provider.strip()
+        ]
+        
+        # Parse and validate dates
+        try:
+            start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            
+            # Ensure start_date is before end_date
+            if start_date > end_date:
+                start_date, end_date = end_date, start_date
+                
+            # Ensure dates are in UTC
+            start_date = start_date.astimezone(UTC)
+            end_date = end_date.astimezone(UTC)
+            
+        except ValueError as e:
+            raise ValueError(f"Invalid date format: {str(e)}")
+        
+        # Remove duplicates while preserving order
+        models = list(dict.fromkeys(models))
+        endpoints = list(dict.fromkeys(endpoints))
+        providers = list(dict.fromkeys(providers))
+        
         return FilterParams(
-            time_granularity=time_granularity,
+            time_granularity=TimeGranularity.MONTH,
             start_date=start_date,
             end_date=end_date,
             models=models,
@@ -173,7 +172,9 @@ def parse_filters() -> FilterParams:
             providers=providers
         )
     except Exception as e:
-        raise ValueError(f"Error parsing filters: {str(e)}")
+        print(f"Error parsing filters: {str(e)}")
+        print(f"Request args: {dict(request.args)}")
+        raise ValueError(f"Failed to parse filters: {str(e)}")
 
 def get_time_group_format(granularity: TimeGranularity) -> str:
     """Get SQL timestamp format for grouping based on granularity"""
@@ -311,23 +312,118 @@ def query_monthly_metrics() -> List[Dict[str, Any]]:
         print(f"Full error details: {repr(e)}")
         return []
 
+# Cache key generator
+def make_cache_key(*args, **kwargs):
+    # Convert args and kwargs to strings and sort for consistency
+    key_parts = [str(arg) for arg in args]
+    key_parts.extend(f"{k}={v}" for k, v in sorted(kwargs.items()))
+    # Create a hash of the key parts
+    return hashlib.md5("".join(key_parts).encode()).hexdigest()
+
+# Cache decorators with TTL
+@lru_cache(maxsize=128)
+def get_cached_metrics_summary(cache_key: str, ttl_hash: str):
+    """Cache for metrics summary with 5 minute TTL"""
+    return get_metrics_summary_internal()
+
+@lru_cache(maxsize=128)
+def get_cached_metrics_trend(cache_key: str, ttl_hash: str):
+    """Cache for metrics trend with 5 minute TTL"""
+    return get_metrics_trend_internal()
+
+@lru_cache(maxsize=128)
+def get_cached_recommendations(cache_key: str, ttl_hash: str):
+    """Cache for recommendations with 5 minute TTL"""
+    return get_recommendations_internal()
+
+# TTL hash generator (changes every 5 minutes)
+def get_ttl_hash(minutes=5):
+    """Return the same value within `minutes` time period"""
+    return datetime.now(UTC).strftime(f"%Y-%m-%d %H:{minutes}//5 %M")
+
 @app.route('/api/filters')
 def get_filters():
-    """Get available filter options"""
+    """Get available filter options with their relationships"""
     try:
         # Get all unique values including nulls
         response = app.supabase.table('token_logs').select('model, endpoint_name, api_provider').execute()
         
+        if not response.data:
+            return jsonify({
+                'models': [],
+                'endpoints': [],
+                'providers': [],
+                'relationships': {
+                    'model_endpoints': {},
+                    'model_providers': {},
+                    'endpoint_providers': {},
+                    'provider_models': {},
+                    'provider_endpoints': {},
+                    'endpoint_models': {}
+                }
+            })
+
+        # Build relationships
+        model_endpoints = {}  # model -> endpoints
+        model_providers = {}  # model -> providers
+        endpoint_providers = {}  # endpoint -> providers
+        provider_models = {}  # provider -> models
+        provider_endpoints = {}  # provider -> endpoints
+        endpoint_models = {}  # endpoint -> models
+
+        # Process each log to build relationships
+        for row in response.data:
+            model = str(row.get('model', 'None'))
+            endpoint = str(row.get('endpoint_name', 'None'))
+            provider = str(row.get('api_provider', 'None'))
+
+            # Model relationships
+            if model not in model_endpoints:
+                model_endpoints[model] = set()
+            model_endpoints[model].add(endpoint)
+
+            if model not in model_providers:
+                model_providers[model] = set()
+            model_providers[model].add(provider)
+
+            # Endpoint relationships
+            if endpoint not in endpoint_providers:
+                endpoint_providers[endpoint] = set()
+            endpoint_providers[endpoint].add(provider)
+
+            if endpoint not in endpoint_models:
+                endpoint_models[endpoint] = set()
+            endpoint_models[endpoint].add(model)
+
+            # Provider relationships
+            if provider not in provider_models:
+                provider_models[provider] = set()
+            provider_models[provider].add(model)
+
+            if provider not in provider_endpoints:
+                provider_endpoints[provider] = set()
+            provider_endpoints[provider].add(endpoint)
+
+        # Convert sets to sorted lists
+        relationships = {
+            'model_endpoints': {k: sorted(list(v)) for k, v in model_endpoints.items()},
+            'model_providers': {k: sorted(list(v)) for k, v in model_providers.items()},
+            'endpoint_providers': {k: sorted(list(v)) for k, v in endpoint_providers.items()},
+            'provider_models': {k: sorted(list(v)) for k, v in provider_models.items()},
+            'provider_endpoints': {k: sorted(list(v)) for k, v in provider_endpoints.items()},
+            'endpoint_models': {k: sorted(list(v)) for k, v in endpoint_models.items()}
+        }
+
         # Get unique values preserving nulls
-        unique_models = sorted(list({str(row.get('model', 'None')) for row in response.data}))
-        unique_endpoints = sorted(list({str(row.get('endpoint_name', 'None')) for row in response.data}))
-        unique_providers = sorted(list({str(row.get('api_provider', 'None')) for row in response.data}))
+        unique_models = sorted(list(model_endpoints.keys()))
+        unique_endpoints = sorted(list(endpoint_providers.keys()))
+        unique_providers = sorted(list(provider_models.keys()))
 
         return jsonify({
             'models': unique_models,
             'endpoints': unique_endpoints,
             'providers': unique_providers,
-            'granularities': [g.value for g in TimeGranularity],
+            'relationships': relationships,
             'example_usage': {
                 'filter_by_model': '?model=gpt-4&model=gpt-3.5-turbo',
                 'filter_by_endpoint': '?endpoint=chat&endpoint=completions',
@@ -349,106 +445,50 @@ def health_check():
     })
 
 @app.route('/api/metrics/summary')
-def get_summary():
-    """Get summary metrics for all time"""
+def get_metrics_summary():
+    """Get summary metrics with filters"""
     try:
-        # Get all data without filtering
-        response = app.supabase.table('token_logs').select(
-            'total_cost',
-            'total_tokens',
-            'api_provider',
-            'model',
-            'endpoint_name'
-        ).execute()
+        # Parse filters
+        filters = parse_filters()
         
-        if not response.data:
-            return jsonify({
-                'total_spend': 0,
-                'total_requests': 0,
-                'avg_cost_per_request': 0,
-                'provider_breakdown': {},
-                'model_breakdown': {},
-                'endpoint_breakdown': {},
-                'period': 'all time'
-            })
-
-        # Calculate totals
-        total_spend = sum(float(row['total_cost']) for row in response.data)
-        total_requests = len(response.data)
-        avg_cost_per_request = total_spend / total_requests if total_requests > 0 else 0
-
-        # Calculate provider breakdown
-        provider_metrics = {}
-        model_metrics = {}
-        endpoint_metrics = {}
-
-        for row in response.data:
-            # Provider breakdown
-            provider = row['api_provider']
-            if provider not in provider_metrics:
-                provider_metrics[provider] = {
-                    'total_spend': 0,
-                    'total_requests': 0,
-                    'total_tokens': 0
-                }
-            provider_metrics[provider]['total_spend'] += float(row['total_cost'])
-            provider_metrics[provider]['total_requests'] += 1
-            provider_metrics[provider]['total_tokens'] += int(row['total_tokens'])
-
-            # Model breakdown
-            model = row['model']
-            if model not in model_metrics:
-                model_metrics[model] = {
-                    'total_spend': 0,
-                    'total_requests': 0,
-                    'total_tokens': 0
-                }
-            model_metrics[model]['total_spend'] += float(row['total_cost'])
-            model_metrics[model]['total_requests'] += 1
-            model_metrics[model]['total_tokens'] += int(row['total_tokens'])
-
-            # Endpoint breakdown
-            endpoint = row['endpoint_name']
-            if endpoint not in endpoint_metrics:
-                endpoint_metrics[endpoint] = {
-                    'total_spend': 0,
-                    'total_requests': 0,
-                    'total_tokens': 0
-                }
-            endpoint_metrics[endpoint]['total_spend'] += float(row['total_cost'])
-            endpoint_metrics[endpoint]['total_requests'] += 1
-            endpoint_metrics[endpoint]['total_tokens'] += int(row['total_tokens'])
-
-        return jsonify({
-            'total_spend': total_spend,
-            'total_requests': total_requests,
-            'avg_cost_per_request': avg_cost_per_request,
-            'provider_breakdown': provider_metrics,
-            'model_breakdown': model_metrics,
-            'endpoint_breakdown': endpoint_metrics,
-            'period': 'all time'
-        })
+        # Generate cache key from filters
+        cache_key = make_cache_key(
+            'summary',
+            filters.start_date.isoformat(),
+            filters.end_date.isoformat(),
+            *sorted(filters.models or []),
+            *sorted(filters.endpoints or []),
+            *sorted(filters.providers or [])
+        )
+        
+        # Get cached or fresh data
+        data = get_cached_metrics_summary(cache_key, get_ttl_hash())
+        
+        return jsonify(data)
     except Exception as e:
-        print(f"Error in summary metrics: {str(e)}")
-        print(f"Full error details: {repr(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/metrics/trend')
 def get_metrics_trend():
-    """Get monthly metrics trend"""
+    """Get metrics trend with filters"""
     try:
-        data = query_monthly_metrics()
+        # Parse filters
+        filters = parse_filters()
         
-        if not data:
-            return jsonify({
-                'metrics': [],
-                'period': 'all time'
-            })
-
-        return jsonify({
-            'metrics': data,
-            'period': 'all time'
-        })
+        # Generate cache key from filters
+        cache_key = make_cache_key(
+            'trend',
+            filters.start_date.isoformat(),
+            filters.end_date.isoformat(),
+            *sorted(filters.models or []),
+            *sorted(filters.endpoints or []),
+            *sorted(filters.providers or [])
+        )
+        
+        # Get cached or fresh data
+        data = get_cached_metrics_trend(cache_key, get_ttl_hash())
+        
+        return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -456,117 +496,216 @@ def get_metrics_trend():
 def get_metrics_by_model():
     """Get metrics breakdown by model for the last 12 months"""
     try:
-        query = """
-        SELECT 
-            model,
-            sum(total_cost) as total_spend,
-            count(*) as total_requests,
-            sum(total_tokens) as total_tokens,
-            array_agg(DISTINCT endpoint_name) as endpoints_used,
-            array_agg(DISTINCT api_provider) as providers_used
-        FROM token_logs
-        WHERE timestamp >= date_trunc('month', current_date - interval '11 months')
-        GROUP BY model
-        ORDER BY total_spend DESC;
-        """
+        # Calculate date range
+        end_date = datetime.now(UTC)
+        start_date = end_date - timedelta(days=365)
         
-        response = app.supabase.query(query).execute()
-        data = response.data or []
-
+        # Query data using table API
+        response = app.supabase.table('token_logs').select(
+            'model',
+            'total_cost',
+            'total_tokens',
+            'endpoint_name',
+            'api_provider'
+        ).gte(
+            'timestamp', 
+            start_date.isoformat()
+        ).lte(
+            'timestamp',
+            end_date.isoformat()
+        ).execute()
+        
+        if not response.data:
+            return jsonify({
+                'metrics': [],
+                'period': 'last 12 months'
+            })
+            
+        # Aggregate data by model
+        model_metrics = {}
+        for row in response.data:
+            model = row['model']
+            if model not in model_metrics:
+                model_metrics[model] = {
+                    'model': model,
+                    'total_spend': 0,
+                    'total_requests': 0,
+                    'total_tokens': 0,
+                    'endpoints_used': set(),
+                    'providers_used': set()
+                }
+            
+            metrics = model_metrics[model]
+            metrics['total_spend'] += float(row['total_cost'])
+            metrics['total_requests'] += 1
+            metrics['total_tokens'] += int(row['total_tokens'])
+            metrics['endpoints_used'].add(row['endpoint_name'])
+            metrics['providers_used'].add(row['api_provider'])
+        
+        # Convert sets to lists and prepare final result
+        result = []
+        for metrics in model_metrics.values():
+            metrics['endpoints_used'] = sorted(list(metrics['endpoints_used']))
+            metrics['providers_used'] = sorted(list(metrics['providers_used']))
+            result.append(metrics)
+        
+        # Sort by total spend
+        result.sort(key=lambda x: x['total_spend'], reverse=True)
+        
         return jsonify({
-            'metrics': data,
+            'metrics': result,
             'period': 'last 12 months'
         })
     except Exception as e:
+        print(f"Error in metrics by model: {str(e)}")
+        print(f"Full error details: {repr(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/metrics/by-endpoint')
 def get_metrics_by_endpoint():
     """Get metrics breakdown by endpoint for the last 12 months"""
     try:
-        query = """
-        SELECT 
-            endpoint_name as endpoint,
-            sum(total_cost) as total_spend,
-            count(*) as total_requests,
-            sum(total_tokens) as total_tokens,
-            array_agg(DISTINCT model) as models_used,
-            array_agg(DISTINCT api_provider) as providers_used
-        FROM token_logs
-        WHERE timestamp >= date_trunc('month', current_date - interval '11 months')
-        GROUP BY endpoint_name
-        ORDER BY total_spend DESC;
-        """
+        # Calculate date range
+        end_date = datetime.now(UTC)
+        start_date = end_date - timedelta(days=365)
         
-        response = app.supabase.query(query).execute()
-        data = response.data or []
-
+        # Query data using table API
+        response = app.supabase.table('token_logs').select(
+            'endpoint_name',
+            'total_cost',
+            'total_tokens',
+            'model',
+            'api_provider'
+        ).gte(
+            'timestamp', 
+            start_date.isoformat()
+        ).lte(
+            'timestamp',
+            end_date.isoformat()
+        ).execute()
+        
+        if not response.data:
+            return jsonify({
+                'metrics': [],
+                'period': 'last 12 months'
+            })
+            
+        # Aggregate data by endpoint
+        endpoint_metrics = {}
+        for row in response.data:
+            endpoint = row['endpoint_name']
+            if endpoint not in endpoint_metrics:
+                endpoint_metrics[endpoint] = {
+                    'endpoint': endpoint,
+                    'total_spend': 0,
+                    'total_requests': 0,
+                    'total_tokens': 0,
+                    'models_used': set(),
+                    'providers_used': set()
+                }
+            
+            metrics = endpoint_metrics[endpoint]
+            metrics['total_spend'] += float(row['total_cost'])
+            metrics['total_requests'] += 1
+            metrics['total_tokens'] += int(row['total_tokens'])
+            metrics['models_used'].add(row['model'])
+            metrics['providers_used'].add(row['api_provider'])
+        
+        # Convert sets to lists and prepare final result
+        result = []
+        for metrics in endpoint_metrics.values():
+            metrics['models_used'] = sorted(list(metrics['models_used']))
+            metrics['providers_used'] = sorted(list(metrics['providers_used']))
+            result.append(metrics)
+        
+        # Sort by total spend
+        result.sort(key=lambda x: x['total_spend'], reverse=True)
+        
         return jsonify({
-            'metrics': data,
+            'metrics': result,
             'period': 'last 12 months'
         })
     except Exception as e:
+        print(f"Error in metrics by endpoint: {str(e)}")
+        print(f"Full error details: {repr(e)}")
         return jsonify({'error': str(e)}), 500
 
 def get_model_usage_metrics(start_date: str, end_date: str, models: Optional[List[str]] = None) -> Dict[str, ModelMetrics]:
-    # First get all relevant logs
-    query = app.supabase.table('token_logs').select(
-        'model',
-        'prompt_tokens',
-        'completion_tokens',
-        'total_tokens',
-        'input_cost',
-        'output_cost',
-        'total_cost',
-        'latency_ms'
-    ).gte('timestamp', start_date).lte('timestamp', end_date)
-    
-    if models:
-        query = query.in_('model', models)
-    
-    response = query.execute()
-    
-    # Process the data in Python
-    metrics: Dict[str, Dict] = {}
-    for row in response.data:
-        model = row['model']
-        if model not in metrics:
-            metrics[model] = {
-                'total_spend': 0.0,
-                'total_requests': 0,
-                'total_tokens': 0,
-                'prompt_tokens': 0,
-                'completion_tokens': 0,
-                'input_cost': 0.0,
-                'output_cost': 0.0,
-                'latency_sum': 0.0
-            }
+    """Get usage metrics for models in the given date range"""
+    try:
+        # Build query with filters
+        query = app.supabase.table('token_logs').select(
+            'model',
+            'total_cost',
+            'total_tokens',
+            'prompt_tokens',
+            'completion_tokens',
+            'input_cost',
+            'output_cost',
+            'latency_ms'
+        )
         
-        metrics[model]['total_spend'] += float(row['total_cost'])
-        metrics[model]['total_requests'] += 1
-        metrics[model]['total_tokens'] += int(row['total_tokens'])
-        metrics[model]['prompt_tokens'] += int(row['prompt_tokens'])
-        metrics[model]['completion_tokens'] += int(row['completion_tokens'])
-        metrics[model]['input_cost'] += float(row['input_cost'])
-        metrics[model]['output_cost'] += float(row['output_cost'])
-        metrics[model]['latency_sum'] += float(row['latency_ms']) if row.get('latency_ms') else 0.0
-    
-    # Convert to final format
-    result: Dict[str, ModelMetrics] = {}
-    for model, data in metrics.items():
-        result[model] = {
-            'total_spend': data['total_spend'],
-            'total_requests': data['total_requests'],
-            'total_tokens': data['total_tokens'],
-            'prompt_tokens': data['prompt_tokens'],
-            'completion_tokens': data['completion_tokens'],
-            'input_cost': data['input_cost'],
-            'output_cost': data['output_cost'],
-            'avg_latency': data['latency_sum'] / data['total_requests'] if data['total_requests'] > 0 else None,
-            'error_rate': 0.0  # We don't have error data in the schema
-        }
-    
-    return result
+        # Apply date filters
+        query = query.gte('timestamp', start_date)
+        query = query.lt('timestamp', end_date)
+        
+        # Apply model filter
+        if models:
+            query = query.in_('model', models)
+            
+        # Execute query
+        response = query.execute()
+        
+        if not response.data:
+            return {}
+            
+        # Calculate metrics per model
+        model_metrics = {}
+        for row in response.data:
+            model = row['model']
+            if model not in model_metrics:
+                model_metrics[model] = {
+                    'total_spend': 0,
+                    'total_requests': 0,
+                    'total_tokens': 0,
+                    'prompt_tokens': 0,
+                    'completion_tokens': 0,
+                    'input_cost': 0,
+                    'output_cost': 0,
+                    'avg_latency': 0,
+                    'latency_samples': 0
+                }
+                
+            metrics = model_metrics[model]
+            metrics['total_spend'] += float(row['total_cost'])
+            metrics['total_requests'] += 1
+            metrics['total_tokens'] += int(row['total_tokens'])
+            metrics['prompt_tokens'] += int(row['prompt_tokens'])
+            metrics['completion_tokens'] += int(row['completion_tokens'])
+            metrics['input_cost'] += float(row['input_cost'])
+            metrics['output_cost'] += float(row['output_cost'])
+            
+            # Handle latency calculation
+            if row['latency_ms'] is not None:
+                latency = float(row['latency_ms'])
+                current_avg = metrics['avg_latency']
+                current_samples = metrics['latency_samples']
+                
+                # Update running average
+                metrics['avg_latency'] = (current_avg * current_samples + latency) / (current_samples + 1)
+                metrics['latency_samples'] += 1
+                
+        # Clean up latency calculation
+        for metrics in model_metrics.values():
+            if metrics['latency_samples'] == 0:
+                metrics['avg_latency'] = 0
+            del metrics['latency_samples']
+            
+        return model_metrics
+    except Exception as e:
+        print(f"Error in get_model_usage_metrics: {str(e)}")
+        print(f"Full error details: {repr(e)}")
+        return {}
 
 def analyze_model_usage(metrics: Dict[str, ModelMetrics]) -> List[Recommendation]:
     recommendations: List[Recommendation] = []
@@ -629,31 +768,260 @@ def analyze_model_usage(metrics: Dict[str, ModelMetrics]) -> List[Recommendation
 
 @app.route('/api/recommendations')
 def get_recommendations():
-    # Get query parameters
-    end_date = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
-    start_date = request.args.get('start_date', (datetime.strptime(end_date, '%Y-%m-%d') - timedelta(days=30)).strftime('%Y-%m-%d'))
-    models = request.args.getlist('model')
-    
-    # Get usage metrics for the period
-    metrics = get_model_usage_metrics(start_date, end_date, models if models else None)
-    
-    # Generate recommendations
-    recommendations = analyze_model_usage(metrics)
-    
-    # Calculate total potential savings
-    total_potential_savings = sum(rec['potential_savings'] for rec in recommendations)
-    
-    return jsonify({
-        'recommendations': recommendations,
-        'total_potential_savings': total_potential_savings,
-        'filters': {
-            'granularity': '30d',
-            'start_date': start_date,
-            'end_date': end_date,
-            'models': models,
-            'endpoints': request.args.getlist('endpoint')
+    """Get recommendations with filters"""
+    try:
+        # Parse filters
+        filters = parse_filters()
+        
+        # Generate cache key from filters
+        cache_key = make_cache_key(
+            'recommendations',
+            filters.start_date.isoformat(),
+            filters.end_date.isoformat(),
+            *sorted(filters.models or []),
+            *sorted(filters.endpoints or []),
+            *sorted(filters.providers or [])
+        )
+        
+        # Get cached or fresh data
+        data = get_cached_recommendations(cache_key, get_ttl_hash())
+        
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Internal functions that do the actual work
+def get_metrics_summary_internal():
+    """Internal function to get metrics summary from database"""
+    try:
+        # Parse filters
+        filters = parse_filters()
+        
+        # Build query with filters
+        query = app.supabase.table('token_logs').select(
+            'total_cost',
+            'total_tokens',
+            'api_provider',
+            'model',
+            'endpoint_name'
+        )
+        
+        # Apply date filters
+        query = query.gte('timestamp', filters.start_date.isoformat())
+        query = query.lt('timestamp', filters.end_date.isoformat())
+        
+        # Apply model filter
+        if filters.models:
+            query = query.in_('model', filters.models)
+            
+        # Apply endpoint filter
+        if filters.endpoints:
+            query = query.in_('endpoint_name', filters.endpoints)
+            
+        # Apply provider filter
+        if filters.providers:
+            query = query.in_('api_provider', filters.providers)
+            
+        # Execute query
+        response = query.execute()
+        
+        if not response.data:
+            return {
+                'total_spend': 0,
+                'total_requests': 0,
+                'avg_cost_per_request': 0,
+                'provider_breakdown': {},
+                'model_breakdown': {},
+                'endpoint_breakdown': {},
+                'period': 'filtered'
+            }
+
+        # Calculate totals
+        total_spend = sum(float(row['total_cost']) for row in response.data)
+        total_requests = len(response.data)
+        avg_cost_per_request = total_spend / total_requests if total_requests > 0 else 0
+
+        # Calculate breakdowns
+        provider_metrics = {}
+        model_metrics = {}
+        endpoint_metrics = {}
+
+        for row in response.data:
+            # Provider breakdown
+            provider = row['api_provider']
+            if provider not in provider_metrics:
+                provider_metrics[provider] = {
+                    'total_spend': 0,
+                    'total_requests': 0,
+                    'total_tokens': 0
+                }
+            provider_metrics[provider]['total_spend'] += float(row['total_cost'])
+            provider_metrics[provider]['total_requests'] += 1
+            provider_metrics[provider]['total_tokens'] += int(row['total_tokens'])
+            
+            # Model breakdown
+            model = row['model']
+            if model not in model_metrics:
+                model_metrics[model] = {
+                    'total_spend': 0,
+                    'total_requests': 0,
+                    'total_tokens': 0
+                }
+            model_metrics[model]['total_spend'] += float(row['total_cost'])
+            model_metrics[model]['total_requests'] += 1
+            model_metrics[model]['total_tokens'] += int(row['total_tokens'])
+
+            # Endpoint breakdown
+            endpoint = row['endpoint_name']
+            if endpoint not in endpoint_metrics:
+                endpoint_metrics[endpoint] = {
+                    'total_spend': 0,
+                    'total_requests': 0,
+                    'total_tokens': 0
+                }
+            endpoint_metrics[endpoint]['total_spend'] += float(row['total_cost'])
+            endpoint_metrics[endpoint]['total_requests'] += 1
+            endpoint_metrics[endpoint]['total_tokens'] += int(row['total_tokens'])
+            
+        return {
+            'total_spend': total_spend,
+            'total_requests': total_requests,
+            'avg_cost_per_request': avg_cost_per_request,
+            'provider_breakdown': provider_metrics,
+            'model_breakdown': model_metrics,
+            'endpoint_breakdown': endpoint_metrics,
+            'period': 'filtered'
         }
-    })
+    except Exception as e:
+        print(f"Error in summary metrics: {str(e)}")
+        print(f"Full error details: {repr(e)}")
+        raise
+
+def get_metrics_trend_internal():
+    """Internal function to get metrics trend from database"""
+    try:
+        # Parse filters
+        filters = parse_filters()
+        
+        # Query all data for the filtered period
+        query = app.supabase.table('token_logs').select(
+            'timestamp',
+            'total_cost',
+            'total_tokens',
+            'model',
+            'endpoint_name',
+            'api_provider'
+        )
+        
+        # Apply date filters
+        query = query.gte('timestamp', filters.start_date.isoformat())
+        query = query.lt('timestamp', filters.end_date.isoformat())
+        
+        # Apply model filter
+        if filters.models:
+            query = query.in_('model', filters.models)
+            
+        # Apply endpoint filter
+        if filters.endpoints:
+            query = query.in_('endpoint_name', filters.endpoints)
+            
+        # Apply provider filter
+        if filters.providers:
+            query = query.in_('api_provider', filters.providers)
+            
+        # Execute query
+        response = query.execute()
+        
+        if not response.data:
+            return {
+                'metrics': [],
+                'period': 'filtered'
+            }
+        
+        # Initialize monthly buckets
+        monthly_data = {}
+        current_date = filters.start_date
+        while current_date < filters.end_date:
+            month_key = current_date.strftime('%Y-%m')
+            month_label = current_date.strftime('%B %Y')
+            monthly_data[month_key] = {
+                'period': month_key,
+                'period_label': month_label,
+                'total_spend': 0,
+                'total_requests': 0,
+                'total_tokens': 0,
+                'models_used': set(),
+                'endpoints_used': set(),
+                'providers_used': set()
+            }
+            # Move to next month
+            if current_date.month == 12:
+                current_date = current_date.replace(year=current_date.year + 1, month=1)
+            else:
+                current_date = current_date.replace(month=current_date.month + 1)
+            
+        # Process the data
+        for row in response.data:
+            timestamp = datetime.fromisoformat(row['timestamp'].replace('Z', '+00:00'))
+            month_key = timestamp.strftime('%Y-%m')
+            
+            if month_key in monthly_data:
+                monthly_data[month_key]['total_spend'] += float(row['total_cost'])
+                monthly_data[month_key]['total_requests'] += 1
+                monthly_data[month_key]['total_tokens'] += int(row['total_tokens'])
+                monthly_data[month_key]['models_used'].add(row['model'])
+                monthly_data[month_key]['endpoints_used'].add(row['endpoint_name'])
+                monthly_data[month_key]['providers_used'].add(row['api_provider'])
+        
+        # Convert sets to lists and prepare final result
+        result = []
+        for data in monthly_data.values():
+            data['models_used'] = sorted(list(data['models_used']))
+            data['endpoints_used'] = sorted(list(data['endpoints_used']))
+            data['providers_used'] = sorted(list(data['providers_used']))
+            result.append(data)
+        
+        # Sort by period
+        result.sort(key=lambda x: x['period'])
+        return {
+            'metrics': result,
+            'period': 'filtered'
+        }
+    except Exception as e:
+        print(f"Error in metrics trend: {str(e)}")
+        print(f"Full error details: {repr(e)}")
+        raise
+
+def get_recommendations_internal():
+    """Internal function to get recommendations from database"""
+    try:
+        # Parse filters
+        filters = parse_filters()
+        
+        # Get usage metrics for the period
+        metrics = get_model_usage_metrics(filters.start_date.isoformat(), filters.end_date.isoformat(), filters.models if filters.models else None)
+        
+        # Generate recommendations
+        recommendations = analyze_model_usage(metrics)
+        
+        # Calculate total potential savings
+        total_potential_savings = sum(rec['potential_savings'] for rec in recommendations)
+        
+        return {
+            'recommendations': recommendations,
+            'total_potential_savings': total_potential_savings,
+            'filters': {
+                'granularity': '30d',
+                'start_date': filters.start_date.isoformat(),
+                'end_date': filters.end_date.isoformat(),
+                'models': filters.models,
+                'endpoints': filters.endpoints
+            }
+        }
+    except Exception as e:
+        print(f"Error in recommendations: {str(e)}")
+        print(f"Full error details: {repr(e)}")
+        raise
 
 @app.route('/api/logs')
 def get_logs():

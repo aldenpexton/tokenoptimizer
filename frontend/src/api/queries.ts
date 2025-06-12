@@ -6,15 +6,15 @@ import { FilterParams, MetricsSummary, LogsResponse, TrendResponse } from '../ty
 export const fetchJson = async <T>(endpoint: string, params?: FilterParams): Promise<T> => {
   const searchParams = new URLSearchParams();
   if (params) {
-    // Handle array parameters (models, endpoints)
+    // Handle array parameters with consistent naming
     if (params.models?.length) {
-      params.models.forEach(model => searchParams.append('model', model));
+      params.models.forEach(model => searchParams.append('models', model));
     }
     if (params.endpoints?.length) {
-      params.endpoints.forEach(endpoint => searchParams.append('endpoint', endpoint));
+      params.endpoints.forEach(endpoint => searchParams.append('endpoints', endpoint));
     }
     if (params.providers?.length) {
-      params.providers.forEach(provider => searchParams.append('provider', provider));
+      params.providers.forEach(provider => searchParams.append('providers', provider));
     }
     // Handle date range parameters
     if (params.start_date) {

@@ -27,21 +27,21 @@ const LandingPage: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 overflow-x-hidden">
       {/* Hero Section */}
       <div className="relative">
         {/* Background Elements */}
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute -top-40 -right-32 w-96 h-96 bg-gradient-to-br from-primary-200/30 to-primary-400/30 rounded-full blur-3xl" />
-          <div className="absolute top-20 -left-32 w-96 h-96 bg-gradient-to-tr from-purple-200/30 to-purple-400/30 rounded-full blur-3xl" />
+        <div className="fixed inset-0 overflow-hidden">
+          <div className="absolute -top-40 -right-32 w-[40rem] h-[40rem] bg-gradient-to-br from-primary-200/30 to-primary-400/30 rounded-full blur-3xl" />
+          <div className="absolute top-20 -left-32 w-[40rem] h-[40rem] bg-gradient-to-tr from-purple-200/30 to-purple-400/30 rounded-full blur-3xl" />
         </div>
 
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-36">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-20">
           <div className="text-center">
-            <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary-600 to-purple-600 mb-8 leading-[1.2] tracking-tight">
+            <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary-600 to-purple-600 mb-6 leading-[1.4] tracking-tight pb-2">
               Make your LLM API spend go farther.
             </h1>
-            <p className="text-xl md:text-2xl text-primary-800 mb-12 max-w-3xl mx-auto">
+            <p className="text-xl md:text-2xl text-primary-800 mb-10 max-w-3xl mx-auto">
               Track token usage, benchmark models, and uncover cost-savings in minutes.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
@@ -57,18 +57,18 @@ const LandingPage: React.FC = () => {
       </div>
 
       {/* Flow Diagram */}
-      <div className="relative">
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/80 to-white" />
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="relative py-16">
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/50 to-white/80" />
+        <div className="relative max-w-7xl mx-auto">
           <FlowDiagram />
         </div>
       </div>
 
       {/* Value Props */}
-      <div className="relative bg-white/80 backdrop-blur-sm py-24">
-        <div className="absolute inset-0 bg-gradient-to-t from-primary-50/50 to-transparent" />
+      <div className="relative py-20">
+        <div className="absolute inset-0 bg-gradient-to-b from-white/80 via-white/50 to-transparent pointer-events-none" />
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 lg:gap-12 max-w-6xl mx-auto">
             {valueProps.map((prop) => (
               <ValueCard
                 key={prop.title}
@@ -83,8 +83,9 @@ const LandingPage: React.FC = () => {
       </div>
 
       {/* Footer */}
-      <footer className="relative bg-white/90 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <footer className="relative mt-auto">
+        <div className="absolute inset-0 bg-gradient-to-t from-white/90 to-transparent pointer-events-none" />
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="flex gap-6">
               <a
