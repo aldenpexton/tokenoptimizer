@@ -1,99 +1,108 @@
-import { Outlet } from 'react-router-dom';
-import { BarChart3, Home, Settings, List, PieChart, TrendingDown } from 'lucide-react';
-import { Link, useLocation } from 'react-router-dom';
+import React from 'react';
+import { Link, Outlet, useLocation } from 'react-router-dom';
 
-const Layout = () => {
+const Layout: React.FC = () => {
   const location = useLocation();
+  const isLandingPage = location.pathname === '/';
   
   return (
-    <div className="flex h-screen bg-background">
-      {/* Sidebar */}
-      <aside className="w-64 bg-card border-r border-gray-200 flex flex-col">
-        <div className="p-4 border-b border-gray-200">
-          <h1 className="text-xl font-bold text-accent">TokenOptimizer</h1>
-        </div>
-        <nav className="flex-1 p-4">
-          <ul className="space-y-2">
-            <li>
-              <Link 
-                to="/" 
-                className={`flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text ${location.pathname === '/' ? 'bg-gray-100 font-medium' : ''}`}
-              >
-                <Home size={18} />
-                <span>Dashboard</span>
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+      {/* Navigation */}
+      <nav className="bg-white/80 backdrop-blur-sm shadow-sm">
+        <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-10">
+          <div className="flex justify-between items-center h-20">
+            {/* Logo/Brand */}
+            <div className="flex items-center space-x-8">
+              <Link to="/" className="flex-shrink-0">
+                <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary-600 to-purple-600">
+                  TokenOptimizer
+                </h1>
               </Link>
-            </li>
-            <li>
-              <Link 
-                to="/optimization" 
-                className={`flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text ${location.pathname === '/optimization' ? 'bg-gray-100 font-medium' : ''}`}
-              >
-                <TrendingDown size={18} />
-                <span>Cost Optimization</span>
-              </Link>
-            </li>
-            <li>
-              <Link 
-                to="/usage" 
-                className={`flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text ${location.pathname === '/usage' ? 'bg-gray-100 font-medium' : ''}`}
-              >
-                <BarChart3 size={18} />
-                <span>Usage</span>
-              </Link>
-            </li>
-            <li>
-              <Link 
-                to="/models" 
-                className={`flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text ${location.pathname === '/models' ? 'bg-gray-100 font-medium' : ''}`}
-              >
-                <PieChart size={18} />
-                <span>Models</span>
-              </Link>
-            </li>
-            <li>
-              <Link 
-                to="/logs" 
-                className={`flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text ${location.pathname === '/logs' ? 'bg-gray-100 font-medium' : ''}`}
-              >
-                <List size={18} />
-                <span>Logs</span>
-              </Link>
-            </li>
-            <li>
-              <Link 
-                to="/settings" 
-                className={`flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-primary-text ${location.pathname === '/settings' ? 'bg-gray-100 font-medium' : ''}`}
-              >
-                <Settings size={18} />
-                <span>Settings</span>
-              </Link>
-            </li>
-          </ul>
-        </nav>
-        <div className="p-4 border-t border-gray-200">
-          <div className="text-sm text-gray-500">TokenOptimizer v1.0</div>
-        </div>
-      </aside>
+              {!isLandingPage && (
+                <div className="hidden sm:flex space-x-6">
+                  <Link
+                    to="/dashboard"
+                    className={`px-4 py-2.5 rounded-md text-base font-medium transition-colors ${
+                      location.pathname === '/dashboard'
+                        ? 'text-primary-600 bg-primary-50'
+                        : 'text-primary-600/80 hover:text-primary-600 hover:bg-primary-50'
+                    }`}
+                  >
+                    Dashboard
+                  </Link>
+                  <Link
+                    to="/logs"
+                    className={`px-4 py-2.5 rounded-md text-base font-medium transition-colors ${
+                      location.pathname === '/logs'
+                        ? 'text-primary-600 bg-primary-50'
+                        : 'text-primary-600/80 hover:text-primary-600 hover:bg-primary-50'
+                    }`}
+                  >
+                    Logs
+                  </Link>
+                </div>
+              )}
+            </div>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-auto">
-        {/* Header */}
-        <header className="bg-card border-b border-gray-200 p-4 flex justify-between items-center sticky top-0 z-10">
-          <h2 className="text-xl font-semibold">
-            {location.pathname === '/' ? 'Dashboard' : 
-             location.pathname === '/optimization' ? 'Cost Optimization' : 
-             location.pathname === '/usage' ? 'Usage' :
-             location.pathname === '/models' ? 'Models' :
-             location.pathname === '/logs' ? 'Logs' :
-             location.pathname === '/settings' ? 'Settings' : 'Dashboard'}
-          </h2>
-        </header>
-
-        {/* Content Area */}
-        <div className="p-6">
-          <Outlet />
+            {/* Right side navigation */}
+            <div className="flex items-center space-x-4">
+              {isLandingPage ? (
+                <Link
+                  to="/dashboard"
+                  className="px-4 py-2 bg-gradient-to-r from-primary-600 to-purple-600 text-white rounded-lg font-medium transition-all hover:shadow-md"
+                >
+                  Open Dashboard
+                </Link>
+              ) : (
+                <Link
+                  to="/"
+                  className="text-primary-600 hover:text-primary-700 font-medium"
+                >
+                  ← Back to Home
+                </Link>
+              )}
+            </div>
+          </div>
         </div>
+      </nav>
+
+      {/* Main Content */}
+      <main className="flex-1">
+        <Outlet />
       </main>
+
+      {/* Footer */}
+      <footer className="mt-auto bg-white/90 backdrop-blur-sm border-t border-primary-100/20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+            <div className="flex gap-6">
+              <a
+                href="https://github.com/yourusername/tokenoptimizer"
+                className="text-primary-600 hover:text-primary-700 text-sm font-medium"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                GitHub
+              </a>
+              <Link
+                to="/privacy"
+                className="text-primary-600 hover:text-primary-700 text-sm font-medium"
+              >
+                Privacy
+              </Link>
+              <a
+                href="mailto:contact@example.com"
+                className="text-primary-600 hover:text-primary-700 text-sm font-medium"
+              >
+                Contact
+              </a>
+            </div>
+            <p className="text-sm text-primary-500">
+              Dashboard is in private beta; data shown may be synthetic.
+            </p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 };

@@ -5,7 +5,7 @@
     ],
     "python.linting.enabled": true,
     "python.analysis.diagnosticMode": "workspace",
-    "python.analysis.typeCheckingMode": "off",
+    "python.analysis.typeCheckingMode": "basic",
     "python.analysis.autoImportCompletions": true,
     "python.analysis.importFormat": "absolute",
     "python.analysis.inlayHints.variableTypes": false,
@@ -48,5 +48,16 @@
             "name": "mock",
             "depth": 1
         }
-    ]
+    ],
+    "css.validate": false,
+    "less.validate": false,
+    "scss.validate": false,
+    "editor.codeActionsOnSave": {
+        "source.fixAll.eslint": true
+    },
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter"
+    }
 } 

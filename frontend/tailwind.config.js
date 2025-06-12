@@ -1,22 +1,52 @@
 /** @type {import('tailwindcss').Config} */
-export default {
+module.exports = {
   content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
+    "./src/**/*.{js,jsx,ts,tsx}",
   ],
   theme: {
     extend: {
       colors: {
-        'primary-text': '#1F2937',
-        'accent': '#6366F1',
-        'background': '#F9FAFB',
-        'card': '#FFFFFF',
-        'warning': '#FBBF24',
-        'success': '#10B981',
+        // Stripe's color palette
+        primary: {
+          50: '#f6f8fa',
+          100: '#edf1f7',
+          200: '#e5e9f0',
+          300: '#d1d9e6',
+          400: '#a3b1c6',
+          500: '#7a8ba6',
+          600: '#556783',
+          700: '#364761',
+          800: '#1a2c42',
+          900: '#0a1628',
+        },
+        accent: {
+          // Stripe's purple
+          DEFAULT: '#635bff',
+          light: '#7a73ff',
+          dark: '#4b44ff',
+        },
+        success: {
+          DEFAULT: '#24b47e',
+          light: '#3ecf8e',
+          dark: '#1a9c6e',
+        },
+        warning: {
+          DEFAULT: '#f7b84b',
+          light: '#f8c46c',
+          dark: '#f6ac2a',
+        },
+        error: {
+          DEFAULT: '#cd3d64',
+          light: '#d65c7f',
+          dark: '#c41e49',
+        },
       },
-      fontFamily: {
-        sans: ['Inter', 'system-ui', 'Roboto', 'Helvetica Neue', 'sans-serif'],
-      }
+      // Stripe-like shadows
+      boxShadow: {
+        'stripe-sm': '0 2px 5px -1px rgba(50,50,93,.25), 0 1px 3px -1px rgba(0,0,0,.3)',
+        'stripe-md': '0 6px 12px -2px rgba(50,50,93,.25), 0 3px 7px -3px rgba(0,0,0,.3)',
+        'stripe-lg': '0 13px 27px -5px rgba(50,50,93,.25), 0 8px 16px -8px rgba(0,0,0,.3)',
+      },
     },
   },
   plugins: [],

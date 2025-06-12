@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 
 # Default configuration
 _DEFAULT_CONFIG = {
-    "api_url": "http://localhost:5000/api/log",
+    "api_url": "http://localhost:5002/api/log",
     "timeout": 3,
     "debug": False,
     "disable_logging": False

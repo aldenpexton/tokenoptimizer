@@ -49,7 +49,7 @@ def track_usage(
     
     # Get config
     config = get_config()
-    api_url = config.get("api_url", "http://localhost:5000/api/log")
+    api_url = config.get("api_url", "http://localhost:5002/api/log")
     
     # Prepare timestamp
     if not timestamp:

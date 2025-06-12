@@ -1,23 +1,35 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import Dashboard from './pages/Dashboard';
-import CostOptimization from './pages/CostOptimization';
+import React from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Layout from './components/Layout';
-import { FilterProvider } from './contexts/FilterContext';
+import DashboardPage from './pages/DashboardPage';
+import LogsPage from './pages/LogsPage';
+import LandingPage from './pages/LandingPage';
+
+// Create a client
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1 * 60 * 1000, // Consider data fresh for 1 minute
+      retry: 1, // Only retry failed requests once
+    },
+  },
+});
 
 function App() {
   return (
-    <FilterProvider>
-      <Router>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Layout />}>
-            <Route index element={<Dashboard />} />
-            <Route path="optimization" element={<CostOptimization />} />
-            {/* Add more routes as needed */}
+          <Route path="/" element={<LandingPage />} />
+          <Route element={<Layout />}>
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/logs" element={<LogsPage />} />
           </Route>
         </Routes>
-      </Router>
-    </FilterProvider>
+      </BrowserRouter>
+    </QueryClientProvider>
   );
 }
 
-export default App;
+export default App; 
