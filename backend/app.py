@@ -61,8 +61,11 @@ def create_app():
         raise ValueError("Missing Supabase credentials. Please check your .env file.")
 
     try:
-        # Initialize Supabase client with minimal configuration
-        app.supabase = create_client(supabase_url, supabase_key)
+        # Initialize with minimal configuration
+        app.supabase = create_client(
+            supabase_url=supabase_url,
+            supabase_key=supabase_key
+        )
     except Exception as e:
         print(f"Error initializing Supabase client: {str(e)}")
         raise e
