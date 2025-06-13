@@ -16,6 +16,7 @@ from functools import lru_cache
 import hashlib
 import gc
 import psutil
+import time
 
 # Use UTC timezone
 UTC = ZoneInfo("UTC")
@@ -45,7 +46,19 @@ class TokenOptimizerApp(Flask):
 def create_app():
     # Initialize Flask app
     app = TokenOptimizerApp(__name__)
-    CORS(app)
+    
+    # Configure CORS with allowed origins
+    CORS(app, resources={
+        r"/api/*": {
+            "origins": [
+                "https://www.tokenoptimizer.com",
+                "http://localhost:3000",  # For local development
+                "http://localhost:5173"   # For Vite's default port
+            ],
+            "methods": ["GET", "POST", "OPTIONS"],
+            "allow_headers": ["Content-Type"]
+        }
+    })
 
     # Load environment variables from root directory
     env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
@@ -96,11 +109,29 @@ def create_app():
     def cleanup_cache():
         """Cleanup LRU cache when memory usage is high"""
         process = psutil.Process(os.getpid())
-        if process.memory_percent() > 80:  # If memory usage is above 80%
+        memory_percent = process.memory_percent()
+        
+        # More aggressive cache cleanup
+        if memory_percent > 70:  # Lower threshold for proactive cleanup
             get_cached_metrics_summary.cache_clear()
             get_cached_metrics_trend.cache_clear()
             get_cached_recommendations.cache_clear()
             gc.collect()
+        
+        # Emergency cleanup
+        if memory_percent > 85:
+            get_cached_metrics_summary.cache_clear()
+            get_cached_metrics_trend.cache_clear()
+            get_cached_recommendations.cache_clear()
+            gc.collect()
+            
+            # Clear all module-level caches
+            for cache_name, cache_func in list(globals().items()):
+                if hasattr(cache_func, 'cache_clear'):
+                    cache_func.cache_clear()
+            
+            # Aggressive garbage collection
+            gc.collect(generation=2)
 
     # Modify existing query functions to use pagination
     def query_token_logs(filters: FilterParams) -> Tuple[List, int]:
@@ -124,12 +155,29 @@ def create_app():
             if filters.providers:
                 query = query.in_('api_provider', filters.providers)
 
-            # Execute with limit
-            response = execute_query_with_limit(query)
-            if not response:
-                return [], 0
+            # Initialize result containers
+            all_data = []
+            total_count = 0
+            page_size = 1000  # Process 1000 records at a time
+            
+            # Paginate through results
+            for start in range(0, 10000, page_size):  # Cap at 10000 records for safety
+                response = query.range(start, start + page_size - 1).execute()
+                
+                if not response.data:
+                    break
+                    
+                all_data.extend(response.data)
+                total_count = response.count
+                
+                # Force garbage collection after each page
+                gc.collect()
+                
+                # Break if we've got all records
+                if len(all_data) >= total_count:
+                    break
 
-            return response.data, response.count
+            return all_data, total_count
 
         except Exception as e:
             print(f"Error querying token logs: {str(e)}")
@@ -341,25 +389,25 @@ def create_app():
         return hashlib.md5("".join(key_parts).encode()).hexdigest()
 
     # Cache decorators with TTL and increased cache size
-    @lru_cache(maxsize=128)
+    @lru_cache(maxsize=32)
     def get_cached_metrics_summary(cache_key: str, ttl_hash: str):
-        """Cache for metrics summary with 3 minute TTL"""
+        """Cache for metrics summary with 2 minute TTL"""
         return get_metrics_summary_internal()
 
-    @lru_cache(maxsize=128)
+    @lru_cache(maxsize=32)
     def get_cached_metrics_trend(cache_key: str, ttl_hash: str):
-        """Cache for metrics trend with 3 minute TTL"""
+        """Cache for metrics trend with 2 minute TTL"""
         return get_metrics_trend_internal()
 
-    @lru_cache(maxsize=128)
+    @lru_cache(maxsize=32)
     def get_cached_recommendations(cache_key: str, ttl_hash: str):
-        """Cache for recommendations with 3 minute TTL"""
+        """Cache for recommendations with 2 minute TTL"""
         return get_recommendations_internal()
 
-    # TTL hash generator (changes every 3 minutes)
-    def get_ttl_hash(minutes=3):
+    # TTL hash generator (changes every 2 minutes)
+    def get_ttl_hash(minutes=2):
         """Return the same value within `minutes` time period"""
-        return datetime.now(UTC).replace(second=0, microsecond=0, minute=datetime.now(UTC).minute // minutes).timestamp()
+        return round(time.time() / (minutes * 60))
 
     @app.route('/api/filters')
     def get_filters():
