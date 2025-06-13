@@ -3,16 +3,5 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "framework": "create-react-app",
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
-  ],
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/node@18.17.0"
-    }
-  ]
+  "nodeVersion": "18.17.0"
 } 
