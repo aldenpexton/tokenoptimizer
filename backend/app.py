@@ -1162,4 +1162,4 @@ def create_app():
 # Only create the app if running directly (not through gunicorn)
 if __name__ == '__main__':
     app = create_app()
-    app.run(debug=True) 
+    app.run(debug=True, port=5002) 

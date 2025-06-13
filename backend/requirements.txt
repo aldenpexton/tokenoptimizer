@@ -9,4 +9,8 @@ postgrest==0.10.6
 pytz==2025.2
 python-jose[cryptography]==3.3.0
 requests==2.31.0
-gotrue>=1.0.1,<2.0.0 
+gotrue>=1.0.1,<2.0.0
+SQLAlchemy==2.0.28
+pandas==2.2.1
+pytest==8.1.1
+psutil==5.9.8 
