@@ -4,12 +4,13 @@ import os
 # Python path configuration
 pythonpath = os.path.dirname(os.path.dirname(__file__))
 
-# Worker configuration
-workers = multiprocessing.cpu_count() * 2 + 1  # Standard formula for gunicorn workers
-worker_class = 'sync'
+# Worker configuration optimized for memory constraints (512MB limit)
+workers = 2  # Fixed number of workers for memory optimization
+worker_class = 'gthread'  # Thread-based workers for better memory sharing
+threads = 4  # Number of threads per worker
 worker_connections = 1000
-timeout = 60
-keepalive = 5
+timeout = 30  # Reduced timeout
+keepalive = 2  # Reduced keepalive
 
 # Logging
 accesslog = '-'
@@ -19,8 +20,8 @@ loglevel = 'info'
 # Performance tuning
 max_requests = 1000
 max_requests_jitter = 50
-graceful_timeout = 30
-preload_app = True  # Enable preloading for faster worker startup
+graceful_timeout = 20
+preload_app = False  # Disable preloading to save memory
 
 # Memory optimization
 worker_tmp_dir = '/dev/shm'
