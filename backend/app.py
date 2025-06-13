@@ -61,23 +61,11 @@ def create_app():
         raise ValueError("Missing Supabase credentials. Please check your .env file.")
 
     try:
-        # Try with minimal options using the proper ClientOptions class
-        options = ClientOptions(
-            schema='public',
-            headers={'X-Client-Info': 'tokenoptimizer-backend'},
-            auto_refresh_token=True,
-            persist_session=True,
-            http_options={}
-        )
-        app.supabase = create_client(supabase_url, supabase_key, options=options)
+        # Initialize Supabase client with minimal configuration
+        app.supabase = create_client(supabase_url, supabase_key)
     except Exception as e:
-        print(f"Error initializing Supabase client with options: {str(e)}")
-        try:
-            # If that fails, try without any options
-            app.supabase = create_client(supabase_url, supabase_key)
-        except Exception as e:
-            print(f"Error initializing Supabase client without options: {str(e)}")
-            raise e
+        print(f"Error initializing Supabase client: {str(e)}")
+        raise e
 
     # Type definitions
     class ModelMetrics(TypedDict):
