@@ -2,7 +2,7 @@ from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from dotenv import load_dotenv
 import os
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta, UTC, timezone as tz
 from supabase import create_client, Client
 from supabase.lib.client_options import ClientOptions
 from typing import List, Optional, Tuple, Dict, Any, TypedDict
@@ -14,6 +14,8 @@ from zoneinfo import ZoneInfo
 from postgrest import Client
 from functools import lru_cache
 import hashlib
+import gc
+import psutil
 
 # Use UTC timezone
 UTC = ZoneInfo("UTC")
@@ -61,7 +63,7 @@ def create_app():
         raise ValueError("Missing Supabase credentials. Please check your .env file.")
 
     try:
-        # Initialize with minimal configuration
+        # Initialize with minimal configuration and memory settings
         app.supabase = create_client(
             supabase_url=supabase_url,
             supabase_key=supabase_key
@@ -69,6 +71,69 @@ def create_app():
     except Exception as e:
         print(f"Error initializing Supabase client: {str(e)}")
         raise e
+
+    # Add garbage collection for memory management
+    gc.enable()
+    gc.collect()
+
+    # Add request cleanup
+    @app.after_request
+    def cleanup_after_request(response):
+        cleanup_cache()
+        gc.collect()
+        return response
+
+    # Add memory-efficient query helper
+    def execute_query_with_limit(query, limit=50):
+        """Execute query with pagination to prevent memory issues"""
+        try:
+            return query.limit(limit).execute()
+        except Exception as e:
+            print(f"Query error: {str(e)}")
+            return None
+
+    # Add memory cleanup for cache
+    def cleanup_cache():
+        """Cleanup LRU cache when memory usage is high"""
+        process = psutil.Process(os.getpid())
+        if process.memory_percent() > 80:  # If memory usage is above 80%
+            get_cached_metrics_summary.cache_clear()
+            get_cached_metrics_trend.cache_clear()
+            get_cached_recommendations.cache_clear()
+            gc.collect()
+
+    # Modify existing query functions to use pagination
+    def query_token_logs(filters: FilterParams) -> Tuple[List, int]:
+        """Query token logs with filters and memory optimization"""
+        try:
+            # Start with base query and select only needed columns
+            query = app.supabase.table('token_logs').select(
+                "timestamp, model, endpoint_name, api_provider, prompt_tokens, completion_tokens, total_tokens, latency_ms, input_cost, output_cost",
+                count="exact"
+            )
+
+            # Apply date filters with timezone handling
+            query = query.gte('timestamp', filters.start_date.astimezone(UTC).isoformat())
+            query = query.lt('timestamp', filters.end_date.astimezone(UTC).isoformat())
+
+            # Apply filters
+            if filters.models:
+                query = query.in_('model', filters.models)
+            if filters.endpoints:
+                query = query.in_('endpoint_name', filters.endpoints)
+            if filters.providers:
+                query = query.in_('api_provider', filters.providers)
+
+            # Execute with limit
+            response = execute_query_with_limit(query)
+            if not response:
+                return [], 0
+
+            return response.data, response.count
+
+        except Exception as e:
+            print(f"Error querying token logs: {str(e)}")
+            return [], 0
 
     # Type definitions
     class ModelMetrics(TypedDict):
@@ -197,35 +262,6 @@ def create_app():
         }
         return formats[granularity]
 
-    def query_token_logs(filters: FilterParams) -> Tuple[List, int]:
-        """Query token logs with filters and optimized performance"""
-        try:
-            # Start with base query and select only needed columns
-            query = app.supabase.table('token_logs').select(
-                "timestamp, model, endpoint_name, api_provider, prompt_tokens, completion_tokens, total_tokens, latency_ms, input_cost, output_cost",
-                count="exact"
-            )
-
-            # Apply date filters with timezone handling
-            query = query.gte('timestamp', filters.start_date.astimezone(UTC).isoformat())
-            query = query.lt('timestamp', filters.end_date.astimezone(UTC).isoformat())
-
-            # Apply filters in a single query
-            if filters.models:
-                query = query.in_('model', filters.models)
-            if filters.endpoints:
-                query = query.in_('endpoint_name', filters.endpoints)
-            if filters.providers:
-                query = query.in_('api_provider', filters.providers)
-
-            # Execute query with timeout
-            response = query.execute(timeout=30)
-            return response.data, response.count
-
-        except Exception as e:
-            print(f"Error querying token logs: {str(e)}")
-            return [], 0
-
     def query_monthly_metrics() -> List[Dict[str, Any]]:
         """Query monthly aggregated metrics directly from the database"""
         try:
@@ -305,25 +341,25 @@ def create_app():
         return hashlib.md5("".join(key_parts).encode()).hexdigest()
 
     # Cache decorators with TTL and increased cache size
-    @lru_cache(maxsize=256)
+    @lru_cache(maxsize=128)
     def get_cached_metrics_summary(cache_key: str, ttl_hash: str):
-        """Cache for metrics summary with 5 minute TTL"""
+        """Cache for metrics summary with 3 minute TTL"""
         return get_metrics_summary_internal()
 
-    @lru_cache(maxsize=256)
+    @lru_cache(maxsize=128)
     def get_cached_metrics_trend(cache_key: str, ttl_hash: str):
-        """Cache for metrics trend with 5 minute TTL"""
+        """Cache for metrics trend with 3 minute TTL"""
         return get_metrics_trend_internal()
 
-    @lru_cache(maxsize=256)
+    @lru_cache(maxsize=128)
     def get_cached_recommendations(cache_key: str, ttl_hash: str):
-        """Cache for recommendations with 5 minute TTL"""
+        """Cache for recommendations with 3 minute TTL"""
         return get_recommendations_internal()
 
-    # TTL hash generator (changes every 5 minutes)
-    def get_ttl_hash(minutes=5):
+    # TTL hash generator (changes every 3 minutes)
+    def get_ttl_hash(minutes=3):
         """Return the same value within `minutes` time period"""
-        return datetime.now(UTC).strftime(f"%Y-%m-%d %H:{minutes}//5 %M")
+        return datetime.now(UTC).replace(second=0, microsecond=0, minute=datetime.now(UTC).minute // minutes).timestamp()
 
     @app.route('/api/filters')
     def get_filters():
@@ -423,8 +459,16 @@ def create_app():
     @app.route('/api/health')
     def health_check():
         """Health check endpoint"""
+        process = psutil.Process(os.getpid())
+        memory_percent = process.memory_percent()
+        
+        if memory_percent > 90:  # Critical memory usage
+            cleanup_cache()  # Force cache cleanup
+            gc.collect()
+        
         return jsonify({
             'status': 'healthy',
+            'memory_usage': memory_percent,
             'timestamp': datetime.now(UTC).isoformat()
         })
 
@@ -1095,6 +1139,23 @@ def create_app():
             })
         except Exception as e:
             return jsonify({'error': str(e)}), 500
+
+    # Add memory monitoring endpoint
+    @app.route('/api/system/memory', methods=['GET'])
+    def get_memory_stats():
+        """Get current memory usage statistics"""
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        
+        return jsonify({
+            'rss': memory_info.rss / 1024 / 1024,  # RSS in MB
+            'vms': memory_info.vms / 1024 / 1024,  # VMS in MB
+            'percent': process.memory_percent(),
+            'num_threads': process.num_threads(),
+            'connections': len(process.connections()),
+            'open_files': len(process.open_files()),
+            'timestamp': datetime.now(tz.utc).isoformat()
+        })
 
     return app
 
