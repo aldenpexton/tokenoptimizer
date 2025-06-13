@@ -3,5 +3,16 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "framework": "create-react-app",
-  "nodeVersion": "18.17.0"
+  "builds": [
+    {
+      "src": "build/**",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/build/$1"
+    }
+  ]
 } 
