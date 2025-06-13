@@ -1,4 +1,8 @@
 import multiprocessing
+import os
+
+# Python path configuration
+pythonpath = os.path.dirname(os.path.dirname(__file__))
 
 # Worker configuration
 workers = multiprocessing.cpu_count() * 2 + 1

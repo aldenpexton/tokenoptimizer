@@ -59,7 +59,27 @@ def create_app():
     if not supabase_url or not supabase_key:
         raise ValueError("Missing Supabase credentials. Please check your .env file.")
 
-    app.supabase = create_client(supabase_url, supabase_key)
+    # Initialize Supabase client with custom options
+    options = {
+        'auth': {
+            'autoRefreshToken': True,
+            'persistSession': True
+        },
+        'global': {
+            'headers': {
+                'X-Client-Info': 'tokenoptimizer-backend'
+            }
+        }
+    }
+    
+    try:
+        app.supabase = create_client(supabase_url, supabase_key, options)
+    except TypeError as e:
+        if 'proxy' in str(e):
+            # If proxy error occurs, try without options
+            app.supabase = create_client(supabase_url, supabase_key)
+        else:
+            raise e
 
     # Type definitions
     class ModelMetrics(TypedDict):
