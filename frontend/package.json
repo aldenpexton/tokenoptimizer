@@ -13,7 +13,7 @@
     "@types/react": "^18.2.61",
     "@types/react-dom": "^18.2.19",
     "autoprefixer": "^10.4.17",
-    "cross-spawn": "^7.0.3",
+    "cross-spawn": "7.0.3",
     "date-fns": "^3.3.1",
     "lucide-react": "^0.514.0",
     "postcss": "^8.4.35",
@@ -32,7 +32,7 @@
   "scripts": {
     "start": "react-scripts start",
     "dev": "PORT=3002 react-scripts start",
-    "build": "CI=false react-scripts build",
+    "build": "npm ci && CI=false react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
