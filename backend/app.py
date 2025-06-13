@@ -189,58 +189,32 @@ def create_app():
         return formats[granularity]
 
     def query_token_logs(filters: FilterParams) -> Tuple[List, int]:
-        """Query token logs with filters"""
-        # Start with base query
-        query = app.supabase.table('token_logs').select("*", count="exact")
-
-        # Apply date filters with timezone handling
-        query = query.gte('timestamp', filters.start_date.astimezone(UTC).isoformat())
-        query = query.lt('timestamp', filters.end_date.astimezone(UTC).isoformat())
-
-        # Apply model filter (handle None values)
-        if filters.models:
-            query = query.in_('model', filters.models)
-
-        # Apply endpoint filter (handle None values)
-        if filters.endpoints:
-            query = query.in_('endpoint_name', filters.endpoints)
-
-        # Apply provider filter (handle None values)
-        if filters.providers:
-            query = query.in_('api_provider', filters.providers)
-
-        # Add order by timestamp to ensure consistent data
-        query = query.order('timestamp', desc=False)
-
-        # Execute query with error handling
+        """Query token logs with filters and optimized performance"""
         try:
-            response = query.execute()
-            
-            # Validate response data
-            if not response.data:
-                return [], 0
-            
-            # Ensure all required fields are present and handle type conversion
-            validated_data = []
-            for row in response.data:
-                if all(key in row for key in ['timestamp', 'model', 'endpoint_name', 'total_cost']):
-                    # Convert numeric fields to proper types with fallbacks
-                    try:
-                        row['total_cost'] = float(row.get('total_cost', 0))
-                        row['input_cost'] = float(row.get('input_cost', 0))
-                        row['output_cost'] = float(row.get('output_cost', 0))
-                        row['total_tokens'] = int(row.get('total_tokens', 0))
-                        row['prompt_tokens'] = int(row.get('prompt_tokens', 0))
-                        row['completion_tokens'] = int(row.get('completion_tokens', 0))
-                        row['latency_ms'] = int(row.get('latency_ms', 0))
-                        validated_data.append(row)
-                    except (ValueError, TypeError):
-                        print(f"Warning: Skipping row due to invalid numeric values: {row}")
-                        continue
-                
-            return validated_data, len(validated_data)
+            # Start with base query and select only needed columns
+            query = app.supabase.table('token_logs').select(
+                "timestamp, model, endpoint_name, api_provider, prompt_tokens, completion_tokens, total_tokens, latency_ms, input_cost, output_cost",
+                count="exact"
+            )
+
+            # Apply date filters with timezone handling
+            query = query.gte('timestamp', filters.start_date.astimezone(UTC).isoformat())
+            query = query.lt('timestamp', filters.end_date.astimezone(UTC).isoformat())
+
+            # Apply filters in a single query
+            if filters.models:
+                query = query.in_('model', filters.models)
+            if filters.endpoints:
+                query = query.in_('endpoint_name', filters.endpoints)
+            if filters.providers:
+                query = query.in_('api_provider', filters.providers)
+
+            # Execute query with timeout
+            response = query.execute(timeout=30)
+            return response.data, response.count
+
         except Exception as e:
-            print(f"Error querying token_logs: {str(e)}")
+            print(f"Error querying token logs: {str(e)}")
             return [], 0
 
     def query_monthly_metrics() -> List[Dict[str, Any]]:
@@ -321,18 +295,18 @@ def create_app():
         # Create a hash of the key parts
         return hashlib.md5("".join(key_parts).encode()).hexdigest()
 
-    # Cache decorators with TTL
-    @lru_cache(maxsize=128)
+    # Cache decorators with TTL and increased cache size
+    @lru_cache(maxsize=256)
     def get_cached_metrics_summary(cache_key: str, ttl_hash: str):
         """Cache for metrics summary with 5 minute TTL"""
         return get_metrics_summary_internal()
 
-    @lru_cache(maxsize=128)
+    @lru_cache(maxsize=256)
     def get_cached_metrics_trend(cache_key: str, ttl_hash: str):
         """Cache for metrics trend with 5 minute TTL"""
         return get_metrics_trend_internal()
 
-    @lru_cache(maxsize=128)
+    @lru_cache(maxsize=256)
     def get_cached_recommendations(cache_key: str, ttl_hash: str):
         """Cache for recommendations with 5 minute TTL"""
         return get_recommendations_internal()
