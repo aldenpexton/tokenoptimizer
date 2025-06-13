@@ -4,12 +4,12 @@ import os
 # Python path configuration
 pythonpath = os.path.dirname(os.path.dirname(__file__))
 
-# Worker configuration - absolute minimum for memory conservation
-workers = 2  # Minimum number of workers
+# Worker configuration
+workers = multiprocessing.cpu_count() * 2 + 1  # Standard formula for gunicorn workers
 worker_class = 'sync'
-worker_connections = 100  # Reduced connections
-timeout = 30  # Reduced timeout
-keepalive = 2
+worker_connections = 1000
+timeout = 60
+keepalive = 5
 
 # Logging
 accesslog = '-'
@@ -17,15 +17,15 @@ errorlog = '-'
 loglevel = 'info'
 
 # Performance tuning
-max_requests = 100  # Reduced to prevent memory buildup
-max_requests_jitter = 10
-graceful_timeout = 20
-preload_app = False  # Disable preloading to reduce memory usage
+max_requests = 1000
+max_requests_jitter = 50
+graceful_timeout = 30
+preload_app = True  # Enable preloading for faster worker startup
 
 # Memory optimization
-worker_tmp_dir = '/dev/shm'  # Use RAM-based temporary directory
-worker_max_requests = 100    # Restart workers more frequently
-worker_max_requests_jitter = 10
+worker_tmp_dir = '/dev/shm'
+worker_max_requests = 1000
+worker_max_requests_jitter = 50
 
 # Limit request line and headers
 limit_request_line = 4094
@@ -40,6 +40,9 @@ user = None
 group = None
 tmp_upload_dir = None
 
-# SSL
+# Bind configuration
+bind = f"0.0.0.0:{os.getenv('PORT', '8000')}"
+
+# SSL (if needed)
 keyfile = None
 certfile = None 
