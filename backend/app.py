@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 import os
 from datetime import datetime, timedelta, UTC
 from supabase import create_client, Client
+from supabase.lib.client_options import ClientOptions
 from typing import List, Optional, Tuple, Dict, Any, TypedDict
 from enum import Enum
 from dataclasses import dataclass
@@ -60,20 +61,22 @@ def create_app():
         raise ValueError("Missing Supabase credentials. Please check your .env file.")
 
     try:
-        # First try without any options
-        app.supabase = create_client(supabase_url, supabase_key)
+        # Try with minimal options using the proper ClientOptions class
+        options = ClientOptions(
+            schema='public',
+            headers={'X-Client-Info': 'tokenoptimizer-backend'},
+            auto_refresh_token=True,
+            persist_session=True,
+            http_options={}
+        )
+        app.supabase = create_client(supabase_url, supabase_key, options=options)
     except Exception as e:
-        print(f"Error initializing Supabase client: {str(e)}")
-        # If that fails, try with minimal options
+        print(f"Error initializing Supabase client with options: {str(e)}")
         try:
-            options = {
-                'headers': {
-                    'X-Client-Info': 'tokenoptimizer-backend'
-                }
-            }
-            app.supabase = create_client(supabase_url, supabase_key, options)
+            # If that fails, try without any options
+            app.supabase = create_client(supabase_url, supabase_key)
         except Exception as e:
-            print(f"Error initializing Supabase client with options: {str(e)}")
+            print(f"Error initializing Supabase client without options: {str(e)}")
             raise e
 
     # Type definitions
