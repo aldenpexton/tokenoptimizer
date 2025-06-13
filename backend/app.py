@@ -53,7 +53,8 @@ def create_app():
             "origins": [
                 "https://www.tokenoptimizer.com",
                 "http://localhost:3000",  # For local development
-                "http://localhost:5173"   # For Vite's default port
+                "http://localhost:5173",   # For Vite's default port
+                "http://localhost:3002"    # Added for CORS testing
             ],
             "methods": ["GET", "POST", "OPTIONS"],
             "allow_headers": ["Content-Type"]
@@ -79,7 +80,11 @@ def create_app():
         # Initialize with minimal configuration and memory settings
         app.supabase = create_client(
             supabase_url=supabase_url,
-            supabase_key=supabase_key
+            supabase_key=supabase_key,
+            options=ClientOptions(
+                auto_refresh_token=False,     # Disable auto refresh to save memory
+                persist_session=False         # Disable session persistence
+            )
         )
     except Exception as e:
         print(f"Error initializing Supabase client: {str(e)}")
@@ -240,9 +245,45 @@ def create_app():
     def parse_filters() -> FilterParams:
         """Parse and validate filter parameters from request"""
         try:
-            # Get query parameters
-            end_date = request.args.get('end_date', datetime.now(UTC).isoformat())
-            start_date = request.args.get('start_date', (datetime.fromisoformat(end_date.replace('Z', '+00:00')) - timedelta(days=365)).isoformat())
+            # If dates are provided in the request, use those
+            end_date = request.args.get('end_date')
+            start_date = request.args.get('start_date')
+            
+            # Parse time granularity
+            granularity = request.args.get('granularity', 'month').lower()
+            try:
+                time_granularity = TimeGranularity(granularity)
+            except ValueError:
+                time_granularity = TimeGranularity.MONTH
+            
+            # If dates are not provided, determine them from the data
+            if not (start_date and end_date):
+                # Query the min and max timestamps
+                response = app.supabase.table('token_logs').select(
+                    'timestamp'
+                ).order('timestamp', desc=True).limit(1).execute()
+                
+                if response.data:
+                    max_date = datetime.fromisoformat(response.data[0]['timestamp'].replace('Z', '+00:00'))
+                else:
+                    max_date = datetime.now(UTC)
+                    
+                response = app.supabase.table('token_logs').select(
+                    'timestamp'
+                ).order('timestamp', desc=False).limit(1).execute()
+                
+                if response.data:
+                    min_date = datetime.fromisoformat(response.data[0]['timestamp'].replace('Z', '+00:00'))
+                else:
+                    min_date = max_date - timedelta(days=365)
+                
+                # Use the actual data range if no dates provided
+                if not end_date:
+                    end_date = max_date.isoformat()
+                if not start_date:
+                    start_date = min_date.isoformat()
+                
+                print(f"Using date range from data: {start_date} to {end_date}")
             
             # Clean and validate models (handle both 'model' and 'models')
             models = [
@@ -287,7 +328,7 @@ def create_app():
             providers = list(dict.fromkeys(providers))
             
             return FilterParams(
-                time_granularity=TimeGranularity.MONTH,
+                time_granularity=time_granularity,
                 start_date=start_date,
                 end_date=end_date,
                 models=models,
@@ -783,30 +824,292 @@ def create_app():
             print(f"Full error details: {repr(e)}")
             return {}
 
+    def get_metrics_summary_internal():
+        """Internal function to get metrics summary from database"""
+        try:
+            # Parse filters
+            filters = parse_filters()
+            
+            # Build base query with filters
+            query = app.supabase.table('token_logs').select(
+                'total_cost',
+                'total_tokens',
+                'api_provider',
+                'model',
+                'endpoint_name'
+            )
+            
+            # Apply filters
+            query = query.gte('timestamp', filters.start_date.isoformat())
+            query = query.lt('timestamp', filters.end_date.isoformat())
+            
+            if filters.models:
+                query = query.in_('model', filters.models)
+            if filters.endpoints:
+                query = query.in_('endpoint_name', filters.endpoints)
+            if filters.providers:
+                query = query.in_('api_provider', filters.providers)
+
+            # Initialize aggregation dictionaries
+            provider_metrics = {}
+            model_metrics = {}
+            endpoint_metrics = {}
+            total_spend = 0
+            total_requests = 0
+            
+            # Process data in chunks
+            page_size = 5000
+            start = 0
+            
+            while True:
+                response = query.range(start, start + page_size - 1).execute()
+                if not response.data:
+                    break
+                    
+                # Process chunk
+                for row in response.data:
+                    spend = float(row['total_cost'] or 0)
+                    tokens = int(row['total_tokens'] or 0)
+                    
+                    # Update totals
+                    total_spend += spend
+                    total_requests += 1
+                    
+                    # Update provider metrics
+                    provider = row['api_provider']
+                    if provider not in provider_metrics:
+                        provider_metrics[provider] = {'total_spend': 0, 'total_requests': 0, 'total_tokens': 0}
+                    provider_metrics[provider]['total_spend'] += spend
+                    provider_metrics[provider]['total_requests'] += 1
+                    provider_metrics[provider]['total_tokens'] += tokens
+                    
+                    # Update model metrics
+                    model = row['model']
+                    if model not in model_metrics:
+                        model_metrics[model] = {'total_spend': 0, 'total_requests': 0, 'total_tokens': 0}
+                    model_metrics[model]['total_spend'] += spend
+                    model_metrics[model]['total_requests'] += 1
+                    model_metrics[model]['total_tokens'] += tokens
+                    
+                    # Update endpoint metrics
+                    endpoint = row['endpoint_name']
+                    if endpoint not in endpoint_metrics:
+                        endpoint_metrics[endpoint] = {'total_spend': 0, 'total_requests': 0, 'total_tokens': 0}
+                    endpoint_metrics[endpoint]['total_spend'] += spend
+                    endpoint_metrics[endpoint]['total_requests'] += 1
+                    endpoint_metrics[endpoint]['total_tokens'] += tokens
+                
+                # Move to next page
+                start += page_size
+                
+                # Force garbage collection between chunks
+                gc.collect()
+
+            return {
+                'total_spend': total_spend,
+                'total_requests': total_requests,
+                'avg_cost_per_request': total_spend / total_requests if total_requests > 0 else 0,
+                'provider_breakdown': provider_metrics,
+                'model_breakdown': model_metrics,
+                'endpoint_breakdown': endpoint_metrics,
+                'period': 'filtered'
+            }
+        except Exception as e:
+            print(f"Error in get_metrics_summary_internal: {str(e)}")
+            return {
+                'error': str(e),
+                'total_spend': 0,
+                'total_requests': 0,
+                'avg_cost_per_request': 0,
+                'provider_breakdown': {},
+                'model_breakdown': {},
+                'endpoint_breakdown': {},
+                'period': 'filtered'
+            }
+
+    def get_metrics_trend_internal():
+        """Internal function to get metrics trend from database"""
+        try:
+            # Parse filters
+            filters = parse_filters()
+            print(f"Trend filters - start: {filters.start_date}, end: {filters.end_date}, granularity: {filters.time_granularity}")
+            
+            # Initialize time buckets
+            time_buckets = {}
+            current = filters.start_date
+            while current < filters.end_date:
+                # Create bucket key based on granularity
+                if filters.time_granularity == TimeGranularity.HOUR:
+                    bucket_key = current.strftime('%Y-%m-%d %H:00:00')
+                elif filters.time_granularity == TimeGranularity.DAY:
+                    bucket_key = current.strftime('%Y-%m-%d 00:00:00')
+                elif filters.time_granularity == TimeGranularity.WEEK:
+                    # Get start of week
+                    week_start = current - timedelta(days=current.weekday())
+                    bucket_key = week_start.strftime('%Y-%m-%d 00:00:00')
+                elif filters.time_granularity == TimeGranularity.MONTH:
+                    bucket_key = current.strftime('%Y-%m-01 00:00:00')
+                else:  # YEAR
+                    bucket_key = current.strftime('%Y-01-01 00:00:00')
+                
+                time_buckets[bucket_key] = {
+                    'total_spend': 0,
+                    'total_requests': 0,
+                    'total_tokens': 0
+                }
+                
+                # Increment current based on granularity
+                if filters.time_granularity == TimeGranularity.HOUR:
+                    current += timedelta(hours=1)
+                elif filters.time_granularity == TimeGranularity.DAY:
+                    current += timedelta(days=1)
+                elif filters.time_granularity == TimeGranularity.WEEK:
+                    current += timedelta(weeks=1)
+                elif filters.time_granularity == TimeGranularity.MONTH:
+                    if current.month == 12:
+                        current = current.replace(year=current.year + 1, month=1)
+                    else:
+                        current = current.replace(month=current.month + 1)
+                else:  # YEAR
+                    current = current.replace(year=current.year + 1)
+            
+            print(f"Created {len(time_buckets)} time buckets")
+            
+            # Build base query
+            query = app.supabase.table('token_logs').select(
+                'timestamp',
+                'total_cost',
+                'total_tokens'
+            )
+            
+            # Apply filters
+            query = query.gte('timestamp', filters.start_date.isoformat())
+            query = query.lt('timestamp', filters.end_date.isoformat())
+            
+            if filters.models:
+                query = query.in_('model', filters.models)
+            if filters.endpoints:
+                query = query.in_('endpoint_name', filters.endpoints)
+            if filters.providers:
+                query = query.in_('api_provider', filters.providers)
+            
+            # Process data in chunks
+            page_size = 5000
+            start = 0
+            total_rows = 0
+            
+            while True:
+                response = query.range(start, start + page_size - 1).execute()
+                if not response.data:
+                    break
+                
+                chunk_size = len(response.data)
+                total_rows += chunk_size
+                print(f"Processing chunk of {chunk_size} rows (total so far: {total_rows})")
+                
+                # Process chunk
+                for row in response.data:
+                    timestamp = datetime.fromisoformat(row['timestamp'].replace('Z', '+00:00'))
+                    
+                    # Create bucket key based on granularity
+                    if filters.time_granularity == TimeGranularity.HOUR:
+                        bucket_key = timestamp.strftime('%Y-%m-%d %H:00:00')
+                    elif filters.time_granularity == TimeGranularity.DAY:
+                        bucket_key = timestamp.strftime('%Y-%m-%d 00:00:00')
+                    elif filters.time_granularity == TimeGranularity.WEEK:
+                        # Get start of week
+                        week_start = timestamp - timedelta(days=timestamp.weekday())
+                        bucket_key = week_start.strftime('%Y-%m-%d 00:00:00')
+                    elif filters.time_granularity == TimeGranularity.MONTH:
+                        bucket_key = timestamp.strftime('%Y-%m-01 00:00:00')
+                    else:  # YEAR
+                        bucket_key = timestamp.strftime('%Y-01-01 00:00:00')
+                    
+                    if bucket_key in time_buckets:
+                        time_buckets[bucket_key]['total_spend'] += float(row['total_cost'] or 0)
+                        time_buckets[bucket_key]['total_requests'] += 1
+                        time_buckets[bucket_key]['total_tokens'] += int(row['total_tokens'] or 0)
+                    else:
+                        print(f"Warning: Data point at {timestamp} ({bucket_key}) falls outside bucket range")
+                
+                # Move to next page
+                start += page_size
+                
+                # Force garbage collection between chunks
+                gc.collect()
+            
+            print(f"Processed {total_rows} total rows")
+            
+            # Convert buckets to sorted list
+            metrics = []
+            for bucket_key, bucket_metrics in sorted(time_buckets.items()):
+                # Format the period label based on granularity
+                try:
+                    timestamp = datetime.strptime(bucket_key, '%Y-%m-%d %H:00:00')
+                    if filters.time_granularity == TimeGranularity.HOUR:
+                        period_label = timestamp.strftime('%I %p')
+                    elif filters.time_granularity == TimeGranularity.DAY:
+                        period_label = timestamp.strftime('%b %d')
+                    elif filters.time_granularity == TimeGranularity.WEEK:
+                        period_label = f"Week of {timestamp.strftime('%b %d')}"
+                    elif filters.time_granularity == TimeGranularity.MONTH:
+                        period_label = timestamp.strftime('%b %Y')
+                    else:  # YEAR
+                        period_label = timestamp.strftime('%Y')
+                except ValueError as e:
+                    print(f"Error parsing date {bucket_key}: {str(e)}")
+                    period_label = bucket_key
+
+                metrics.append({
+                    'period': bucket_key,
+                    'period_label': period_label,
+                    'total_spend': bucket_metrics['total_spend'],
+                    'total_requests': bucket_metrics['total_requests'],
+                    'total_tokens': bucket_metrics['total_tokens'],
+                    'models_used': [],  # We'll add this later if needed
+                    'endpoints_used': [],  # We'll add this later if needed
+                    'providers_used': []  # We'll add this later if needed
+                })
+            
+            print(f"Returning {len(metrics)} metrics buckets")
+            return {
+                'metrics': metrics,
+                'period': filters.time_granularity.value
+            }
+        except Exception as e:
+            print(f"Error in get_metrics_trend_internal: {str(e)}")
+            print(f"Full error details: {repr(e)}")
+            return {
+                'error': str(e),
+                'metrics': [],
+                'period': filters.time_granularity.value
+            }
+
     def analyze_model_usage(metrics: Dict[str, ModelMetrics]) -> List[Recommendation]:
         recommendations: List[Recommendation] = []
         
         try:
-            # Get model alternatives and pricing in one query with a join
-            query = """
-                SELECT 
-                    ma.source_model,
-                    ma.alternative_model,
-                    ma.similarity_score,
-                    mp_source.input_price as source_input_price,
-                    mp_source.output_price as source_output_price,
-                    mp_alt.input_price as alt_input_price,
-                    mp_alt.output_price as alt_output_price
-                FROM model_alternatives ma
-                JOIN model_pricing mp_source ON ma.source_model = mp_source.model
-                JOIN model_pricing mp_alt ON ma.alternative_model = mp_alt.model
-                WHERE ma.is_recommended = true
-                AND mp_source.is_active = true
-                AND mp_alt.is_active = true;
-            """
+            # Get model alternatives
+            alternatives = app.supabase.table('model_alternatives').select(
+                'source_model',
+                'alternative_model',
+                'similarity_score'
+            ).eq('is_recommended', True).execute()
             
-            # Execute raw query for better performance
-            alternatives = app.supabase.table('model_alternatives').select("*").execute(query)
+            # Get pricing data
+            pricing = app.supabase.table('model_pricing').select(
+                'model',
+                'input_price',
+                'output_price'
+            ).eq('is_active', True).execute()
+            
+            # Build pricing lookup
+            price_lookup = {
+                row['model']: {
+                    'input_price': row['input_price'],
+                    'output_price': row['output_price']
+                } for row in pricing.data
+            }
             
             # Process each model's metrics
             for model, model_metrics in metrics.items():
@@ -814,33 +1117,38 @@ def create_app():
                 model_alts = [alt for alt in alternatives.data if alt['source_model'] == model]
                 
                 for alt in model_alts:
-                    # Calculate savings using pricing from joined query
-                    current_input_cost = model_metrics['prompt_tokens'] * alt['source_input_price'] / 1000
-                    current_output_cost = model_metrics['completion_tokens'] * alt['source_output_price'] / 1000
-                    
-                    alt_input_cost = model_metrics['prompt_tokens'] * alt['alt_input_price'] / 1000
-                    alt_output_cost = model_metrics['completion_tokens'] * alt['alt_output_price'] / 1000
-                    
-                    potential_savings = (current_input_cost + current_output_cost) - (alt_input_cost + alt_output_cost)
-                    
-                    # Only recommend if savings are significant (>10%)
-                    if potential_savings > (model_metrics['total_spend'] * 0.1):
-                        recommendations.append({
-                            'current_model': model,
-                            'recommended_model': alt['alternative_model'],
-                            'similarity_score': alt['similarity_score'],
-                            'potential_savings': potential_savings,
-                            'usage_count': model_metrics['total_requests'],
-                            'reason': f"Switch to save {potential_savings:.2f} based on your usage pattern"
-                        })
+                    alt_model = alt['alternative_model']
+                    if alt_model in price_lookup:
+                        # Calculate savings using pricing lookup
+                        current_pricing = price_lookup[model]
+                        alt_pricing = price_lookup[alt_model]
                         
-                        # Force garbage collection after each significant operation
-                        if len(recommendations) % 10 == 0:
-                            gc.collect()
+                        current_input_cost = model_metrics['prompt_tokens'] * current_pricing['input_price'] / 1000
+                        current_output_cost = model_metrics['completion_tokens'] * current_pricing['output_price'] / 1000
+                        
+                        alt_input_cost = model_metrics['prompt_tokens'] * alt_pricing['input_price'] / 1000
+                        alt_output_cost = model_metrics['completion_tokens'] * alt_pricing['output_price'] / 1000
+                        
+                        potential_savings = (current_input_cost + current_output_cost) - (alt_input_cost + alt_output_cost)
+                        
+                        # Only recommend if savings are significant (>10%)
+                        if potential_savings > (model_metrics['total_spend'] * 0.1):
+                            recommendations.append({
+                                'current_model': model,
+                                'recommended_model': alt_model,
+                                'similarity_score': alt['similarity_score'],
+                                'potential_savings': potential_savings,
+                                'usage_count': model_metrics['total_requests'],
+                                'reason': f"Switch to save {potential_savings:.2f} based on your usage pattern"
+                            })
+                            
+                            # Force garbage collection after each significant operation
+                            if len(recommendations) % 10 == 0:
+                                gc.collect()
             
             # Sort recommendations by potential savings
             recommendations.sort(key=lambda x: x['potential_savings'], reverse=True)
-            return recommendations[:10]  # Limit to top 10 recommendations
+            return recommendations  # Return all recommendations
             
         except Exception as e:
             print(f"Error in analyze_model_usage: {str(e)}")
@@ -871,189 +1179,6 @@ def create_app():
             return jsonify({'error': str(e)}), 500
 
     # Internal functions that do the actual work
-    def get_metrics_summary_internal():
-        """Internal function to get metrics summary from database"""
-        try:
-            # Parse filters
-            filters = parse_filters()
-            
-            # Use a more efficient SQL query with aggregations done in the database
-            query = f"""
-                SELECT 
-                    SUM(total_cost::float) as total_spend,
-                    COUNT(*) as total_requests,
-                    SUM(total_tokens::int) as total_tokens,
-                    api_provider,
-                    model,
-                    endpoint_name
-                FROM token_logs
-                WHERE timestamp >= '{filters.start_date.isoformat()}'
-                AND timestamp < '{filters.end_date.isoformat()}'
-                {f"AND model = ANY('{{{','.join(filters.models)}}}') " if filters.models else ''}
-                {f"AND endpoint_name = ANY('{{{','.join(filters.endpoints)}}}') " if filters.endpoints else ''}
-                {f"AND api_provider = ANY('{{{','.join(filters.providers)}}}') " if filters.providers else ''}
-                GROUP BY api_provider, model, endpoint_name
-            """
-            
-            # Execute the optimized query
-            response = app.supabase.table('token_logs').select("*").execute(query)
-            
-            if not response.data:
-                return {
-                    'total_spend': 0,
-                    'total_requests': 0,
-                    'avg_cost_per_request': 0,
-                    'provider_breakdown': {},
-                    'model_breakdown': {},
-                    'endpoint_breakdown': {},
-                    'period': 'filtered'
-                }
-
-            # Initialize aggregation dictionaries
-            provider_metrics = {}
-            model_metrics = {}
-            endpoint_metrics = {}
-            total_spend = 0
-            total_requests = 0
-
-            # Process aggregated data
-            for row in response.data:
-                spend = float(row['total_spend'] or 0)
-                requests = int(row['total_requests'] or 0)
-                tokens = int(row['total_tokens'] or 0)
-                
-                # Update totals
-                total_spend += spend
-                total_requests += requests
-                
-                # Update provider metrics
-                provider = row['api_provider']
-                if provider not in provider_metrics:
-                    provider_metrics[provider] = {'total_spend': 0, 'total_requests': 0, 'total_tokens': 0}
-                provider_metrics[provider]['total_spend'] += spend
-                provider_metrics[provider]['total_requests'] += requests
-                provider_metrics[provider]['total_tokens'] += tokens
-                
-                # Update model metrics
-                model = row['model']
-                if model not in model_metrics:
-                    model_metrics[model] = {'total_spend': 0, 'total_requests': 0, 'total_tokens': 0}
-                model_metrics[model]['total_spend'] += spend
-                model_metrics[model]['total_requests'] += requests
-                model_metrics[model]['total_tokens'] += tokens
-                
-                # Update endpoint metrics
-                endpoint = row['endpoint_name']
-                if endpoint not in endpoint_metrics:
-                    endpoint_metrics[endpoint] = {'total_spend': 0, 'total_requests': 0, 'total_tokens': 0}
-                endpoint_metrics[endpoint]['total_spend'] += spend
-                endpoint_metrics[endpoint]['total_requests'] += requests
-                endpoint_metrics[endpoint]['total_tokens'] += tokens
-                
-                # Force garbage collection periodically
-                if len(provider_metrics) % 5 == 0:
-                    gc.collect()
-
-            return {
-                'total_spend': total_spend,
-                'total_requests': total_requests,
-                'avg_cost_per_request': total_spend / total_requests if total_requests > 0 else 0,
-                'provider_breakdown': provider_metrics,
-                'model_breakdown': model_metrics,
-                'endpoint_breakdown': endpoint_metrics,
-                'period': 'filtered'
-            }
-        except Exception as e:
-            print(f"Error in get_metrics_summary_internal: {str(e)}")
-            return {
-                'error': str(e),
-                'total_spend': 0,
-                'total_requests': 0,
-                'avg_cost_per_request': 0,
-                'provider_breakdown': {},
-                'model_breakdown': {},
-                'endpoint_breakdown': {},
-                'period': 'filtered'
-            }
-
-    def get_metrics_trend_internal():
-        """Internal function to get metrics trend from database"""
-        try:
-            # Parse filters
-            filters = parse_filters()
-            
-            # Get time grouping format
-            group_format = get_time_group_format(filters.time_granularity)
-            
-            # Use an optimized SQL query with date_trunc and aggregations
-            query = f"""
-                WITH time_series AS (
-                    SELECT generate_series(
-                        date_trunc('{filters.time_granularity.value}', timestamp '{filters.start_date.isoformat()}'::timestamp),
-                        date_trunc('{filters.time_granularity.value}', timestamp '{filters.end_date.isoformat()}'::timestamp),
-                        '1 {filters.time_granularity.value}'::interval
-                    ) as time_bucket
-                ),
-                aggregated_data AS (
-                    SELECT 
-                        date_trunc('{filters.time_granularity.value}', timestamp) as time_bucket,
-                        SUM(total_cost::float) as total_spend,
-                        COUNT(*) as total_requests,
-                        SUM(total_tokens::int) as total_tokens
-                    FROM token_logs
-                    WHERE timestamp >= '{filters.start_date.isoformat()}'
-                    AND timestamp < '{filters.end_date.isoformat()}'
-                    {f"AND model = ANY('{{{','.join(filters.models)}}}') " if filters.models else ''}
-                    {f"AND endpoint_name = ANY('{{{','.join(filters.endpoints)}}}') " if filters.endpoints else ''}
-                    {f"AND api_provider = ANY('{{{','.join(filters.providers)}}}') " if filters.providers else ''}
-                    GROUP BY time_bucket
-                )
-                SELECT 
-                    time_series.time_bucket,
-                    COALESCE(total_spend, 0) as total_spend,
-                    COALESCE(total_requests, 0) as total_requests,
-                    COALESCE(total_tokens, 0) as total_tokens
-                FROM time_series
-                LEFT JOIN aggregated_data ON time_series.time_bucket = aggregated_data.time_bucket
-                ORDER BY time_series.time_bucket;
-            """
-            
-            # Execute the optimized query
-            response = app.supabase.table('token_logs').select("*").execute(query)
-            
-            if not response.data:
-                return {
-                    'trend': [],
-                    'granularity': filters.time_granularity.value
-                }
-
-            # Process results
-            trend = []
-            for row in response.data:
-                trend.append({
-                    'timestamp': row['time_bucket'],
-                    'total_spend': float(row['total_spend'] or 0),
-                    'total_requests': int(row['total_requests'] or 0),
-                    'total_tokens': int(row['total_tokens'] or 0),
-                    'avg_cost_per_request': float(row['total_spend'] or 0) / int(row['total_requests'] or 1) if int(row['total_requests'] or 0) > 0 else 0
-                })
-                
-                # Force garbage collection periodically
-                if len(trend) % 10 == 0:
-                    gc.collect()
-
-            return {
-                'trend': trend,
-                'granularity': filters.time_granularity.value
-            }
-        except Exception as e:
-            print(f"Error in get_metrics_trend_internal: {str(e)}")
-            return {
-                'error': str(e),
-                'trend': [],
-                'granularity': filters.time_granularity.value
-            }
-
     def get_recommendations_internal():
         """Internal function to get recommendations from database"""
         try:
